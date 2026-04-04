@@ -19,33 +19,43 @@ abstract class KonfigExtension @Inject constructor(
 	val outputDir: DirectoryProperty = objects.directoryProperty()
 
 	@PublishedApi
-	internal val fields: MutableMap<String, FieldValue<*>> = mutableMapOf()
+	internal val dimensions: MutableList<DimensionConfig> = mutableListOf()
+
+	@PublishedApi
+	internal val globalFields: MutableList<FieldConfig<*>> = mutableListOf()
+
+	// ─── Dimension DSL ───────────────────────────────────────────────────────
+
+	fun dimension(
+		name: String,
+		objectNameOverride: String? = null,
+		defaultTo: String? = null,
+		config: DimensionConfig.() -> Unit
+	) {
+		val d = DimensionConfig(name, objectNameOverride, defaultTo, providers)
+		config(d)
+		dimensions.add(d)
+	}
+
+	// ─── Global field DSL ────────────────────────────────────────────────────
 
 	inline fun <reified T : Any> field(
 		name: String,
-		value: Provider<T>,
-		noinline variantConfig: (FieldValue<T>.() -> Unit)? = null
+		default: T,
+		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
-		@Suppress("UNCHECKED_CAST")
-		val field = when (T::class) {
-			String::class -> FieldValue.STRING(providers, value as Provider<String>)
-			Boolean::class -> FieldValue.BOOL(providers, value as Provider<Boolean>)
-			Int::class -> FieldValue.INT(providers, value as Provider<Int>)
-			Long::class -> FieldValue.LONG(providers, value as Provider<Long>)
-			Float::class -> FieldValue.FLOAT(providers, value as Provider<Float>)
-			Double::class -> FieldValue.DOUBLE(providers, value as Provider<Double>)
-			else -> error("Unsupported type for field '$name': ${T::class}")
-		} as FieldValue<T>
-
-		variantConfig?.invoke(field)
-		fields[name] = field
+		val f = FieldConfig(name, T::class.javaObjectType, providers, providers.provider { default })
+		config?.invoke(f)
+		globalFields.add(f)
 	}
 
 	inline fun <reified T : Any> field(
 		name: String,
-		value: T,
-		noinline variantConfig: (FieldValue<T>.() -> Unit)? = null
+		default: Provider<T>,
+		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
-		field(name, providers.provider { value }, variantConfig)
+		val f = FieldConfig(name, T::class.javaObjectType, providers, default)
+		config?.invoke(f)
+		globalFields.add(f)
 	}
 }

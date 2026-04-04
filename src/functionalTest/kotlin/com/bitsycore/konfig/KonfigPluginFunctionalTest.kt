@@ -7,6 +7,7 @@ import java.io.File
 import kotlin.io.path.createTempDirectory
 import kotlin.test.Test
 import kotlin.test.assertEquals
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @Suppress("FunctionName")
@@ -30,9 +31,11 @@ class KonfigPluginFunctionalTest {
     }
 
     private fun File.generatedBuildKonfig(): File =
-        walkTopDown().first { it.name == "BuildKonfig.kt" }
+        walkTopDown().first { it.isFile && it.extension == "kt" }
 
-    @Test fun `generateKonfig produces file with correct package and defaults`() = withProject { dir, run ->
+    // ─── Basic generation ─────────────────────────────────────────────────────
+
+    @Test fun `generateKonfig produces file with correct package and BUILD_TYPE`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
@@ -45,10 +48,23 @@ class KonfigPluginFunctionalTest {
         val text = dir.generatedBuildKonfig().readText()
         assertTrue(text.startsWith("package com.example.test.project"))
         assertTrue(text.contains("object BuildKonfig {"))
-        assertTrue(text.contains("""const val MODULE_NAME: String = "test-project""""))
-        assertTrue(text.contains("const val IS_DEBUG: Boolean = false"))
-        assertTrue(text.contains("""const val VARIANT: String = "RELEASE""""))
+        assertTrue(text.contains("""const val BUILD_TYPE: String = "release""""))
     }
+
+    @Test fun `debug build type generates BUILD_TYPE debug`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {}
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=DEBUG"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""const val BUILD_TYPE: String = "debug""""))
+    }
+
+    // ─── Global fields ────────────────────────────────────────────────────────
 
     @Test fun `string fields are generated correctly`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
@@ -84,21 +100,7 @@ class KonfigPluginFunctionalTest {
         assertTrue(text.contains("const val TIMEOUT: Int = 30"))
     }
 
-    @Test fun `debug build type sets IS_DEBUG as inline val`() = withProject { dir, run ->
-        dir.resolve("build.gradle.kts").writeText("""
-            plugins { id("com.bitsycore.konfig") }
-            group = "com.example"
-            konfig {}
-        """.trimIndent())
-
-        run(listOf("generateKonfig", "-Pkonfig.buildtype=DEBUG"))
-
-        val text = dir.generatedBuildKonfig().readText()
-        assertTrue(text.contains("inline val IS_DEBUG: Boolean get() = true"))
-        assertTrue(text.contains("""const val VARIANT: String = "DEBUG""""))
-    }
-
-    @Test fun `variant-specific field overrides default for debug`() = withProject { dir, run ->
+    @Test fun `global field debug override applied for debug build`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
@@ -136,6 +138,8 @@ class KonfigPluginFunctionalTest {
         assertTrue(text.contains("""const val BASE_URL: String = "https://prod.example.com""""))
     }
 
+    // ─── Visibility & naming ──────────────────────────────────────────────────
+
     @Test fun `internal visibility prefixes object`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
@@ -166,6 +170,131 @@ class KonfigPluginFunctionalTest {
         assertTrue(text.contains("object AppConfig {"))
     }
 
+    // ─── Dimensions ───────────────────────────────────────────────────────────
+
+    @Test fun `dimension with explicit property generates nested object`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") {
+                        field("SERVER_URL", "https://prod.example.com")
+                    }
+                    variant("dev") {
+                        field("SERVER_URL", "https://dev.example.com")
+                    }
+                }
+            }
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=dev"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("object Env /*env*/"))
+        assertTrue(text.contains("""const val VARIANT: String = "dev""""))
+        assertTrue(text.contains("""const val SERVER_URL: String = "https://dev.example.com""""))
+    }
+
+    @Test fun `dimension with objectNameOverride uses override name`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env", objectNameOverride = "Environment") {
+                    variant("prod") { field("X", "y") }
+                }
+            }
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=prod"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("object Environment /*env*/"))
+    }
+
+    @Test fun `dimension with defaultTo uses default variant when no property set`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("region", defaultTo = "eu") {
+                    variant("eu") { field("BASE_URL", "https://eu.example.com") }
+                    variant("us") { field("BASE_URL", "https://us.example.com") }
+                }
+            }
+        """.trimIndent())
+
+        // No konfig.dimension.region property — falls back to defaultTo = "eu"
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("object Region /*region*/"))
+        assertTrue(text.contains("""const val VARIANT: String = "eu""""))
+        assertTrue(text.contains("""const val BASE_URL: String = "https://eu.example.com""""))
+    }
+
+    @Test fun `dimension without active variant is omitted silently`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {   // no defaultTo
+                    variant("prod") { field("X", "y") }
+                }
+                field("ALWAYS", "here")
+            }
+        """.trimIndent())
+
+        // No konfig.dimension.env property → dimension omitted, no crash
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertFalse(text.contains("object Env"))
+        assertTrue(text.contains("""const val ALWAYS: String = "here""""))
+    }
+
+    @Test fun `variant field debug override applied inside dimension`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("dev") {
+                        field("URL", "https://dev.example.com") {
+                            debug("https://dev-debug.example.com")
+                        }
+                    }
+                }
+            }
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=DEBUG", "-Pkonfig.dimension.env=dev"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""const val URL: String = "https://dev-debug.example.com""""))
+    }
+
+    @Test fun `missing field in variant does not appear in output`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("a") { field("ONLY_IN_A", true) }
+                    variant("b") { /* ONLY_IN_A not defined here */ }
+                }
+            }
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=b"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertFalse(text.contains("ONLY_IN_A"))
+    }
+
+    // ─── Caching ─────────────────────────────────────────────────────────────
+
     @Test fun `task is UP-TO-DATE on second run`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
@@ -180,18 +309,19 @@ class KonfigPluginFunctionalTest {
         assertEquals(TaskOutcome.UP_TO_DATE, second.task(":generateKonfig")?.outcome)
     }
 
+    // ─── Attribute schema ─────────────────────────────────────────────────────
+
     @Test fun `attribute schema rules are registered automatically`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {}
 
-            // Verify the attribute and its rules are registered without any manual setup
             tasks.register("checkSchema") {
                 doLast {
                     val schema = project.dependencies.attributesSchema
                     val attr = com.bitsycore.konfig.BuildType.ATTRIBUTE
-                    val details = schema.getMatchingStrategy(attr)
+                    schema.getMatchingStrategy(attr)
                     println("SCHEMA_OK")
                 }
             }

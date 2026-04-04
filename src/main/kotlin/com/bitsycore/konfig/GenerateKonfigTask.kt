@@ -2,6 +2,7 @@ package com.bitsycore.konfig
 
 import org.gradle.api.DefaultTask
 import org.gradle.api.file.DirectoryProperty
+import org.gradle.api.provider.ListProperty
 import org.gradle.api.provider.MapProperty
 import org.gradle.api.provider.Property
 import org.gradle.api.tasks.CacheableTask
@@ -9,121 +10,189 @@ import org.gradle.api.tasks.Input
 import org.gradle.api.tasks.OutputDirectory
 import org.gradle.api.tasks.TaskAction
 
+/**
+ * Generates the `BuildKonfig` (or custom named) Kotlin object.
+ *
+ * Dimension data is encoded into flat maps keyed by "<dimensionName>|<fieldName>" so that
+ * all inputs are plain Gradle property types — no managed-type nesting required.
+ */
 @CacheableTask
 abstract class GenerateKonfigTask : DefaultTask() {
 
-	@get:Input
-	abstract val packageName: Property<String>
+	@get:Input abstract val packageName: Property<String>
+	@get:Input abstract val moduleName: Property<String>
+	@get:Input abstract val objectName: Property<String>
+	@get:Input abstract val objectVisibility: Property<Visibility>
+	@get:Input abstract val buildType: Property<BuildType>
 
-	@get:Input
-	abstract val moduleName: Property<String>
+	// ── Global (top-level) fields ─────────────────────────────────────────────
+	@get:Input abstract val globalStringFields: MapProperty<String, String>
+	@get:Input abstract val globalBooleanFields: MapProperty<String, Boolean>
+	@get:Input abstract val globalIntFields: MapProperty<String, Int>
+	@get:Input abstract val globalLongFields: MapProperty<String, Long>
+	@get:Input abstract val globalFloatFields: MapProperty<String, Float>
+	@get:Input abstract val globalDoubleFields: MapProperty<String, Double>
 
-	@get:Input
-	abstract val objectName: Property<String>
+	// ── Dimension metadata ────────────────────────────────────────────────────
+	/** Ordered list of active dimension names, e.g. ["env", "region"]. */
+	@get:Input abstract val activeDimensionNames: ListProperty<String>
+	/** dimName -> Kotlin object name, e.g. "env" -> "Environment". */
+	@get:Input abstract val dimensionObjectNames: MapProperty<String, String>
+	/** dimName -> selected variant, e.g. "env" -> "dev". */
+	@get:Input abstract val dimensionActiveVariants: MapProperty<String, String>
 
-	@get:Input
-	abstract val objectVisibility: Property<Visibility>
+	// ── Dimension fields (key = "<dimName>|<fieldName>") ─────────────────────
+	@get:Input abstract val dimensionStringFields: MapProperty<String, String>
+	@get:Input abstract val dimensionBooleanFields: MapProperty<String, Boolean>
+	@get:Input abstract val dimensionIntFields: MapProperty<String, Int>
+	@get:Input abstract val dimensionLongFields: MapProperty<String, Long>
+	@get:Input abstract val dimensionFloatFields: MapProperty<String, Float>
+	@get:Input abstract val dimensionDoubleFields: MapProperty<String, Double>
 
-	@get:Input
-	abstract val buildType: Property<BuildType>
-
-	@get:Input
-	abstract val stringFields: MapProperty<String, String>
-
-	@get:Input
-	abstract val booleanFields: MapProperty<String, Boolean>
-
-	@get:Input
-	abstract val intFields: MapProperty<String, Int>
-
-	@get:Input
-	abstract val longFields: MapProperty<String, Long>
-
-	@get:Input
-	abstract val floatFields: MapProperty<String, Float>
-
-	@get:Input
-	abstract val doubleFields: MapProperty<String, Double>
-
-	@get:OutputDirectory
-	abstract val outputDirectory: DirectoryProperty
+	@get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
 	@TaskAction
 	fun generate() {
-		val pkg = packageName.get()
-		val isDebug = buildType.get() == BuildType.DEBUG
-		val visibilityPrefix = when (objectVisibility.get()) {
-			Visibility.INTERNAL -> "internal "
-			Visibility.PUBLIC -> "public "
-		}
+		val pkg      = packageName.get()
+		val objName  = objectName.get()
+		val btVal    = buildType.get()
+		val moduleName  = moduleName.get()
+		val vis      = objectVisibility.get()
+		val visPrefix = when (vis) {
+            Visibility.INTERNAL -> "internal "
+            Visibility.PUBLIC -> "public "
+        }
+		val isDebug = btVal == BuildType.DEBUG
+
 		val outDir = outputDirectory.get().asFile
 		if (outDir.exists()) outDir.deleteRecursively()
-
 		val pkgDir = outDir.resolve(pkg.replace('.', '/'))
 		pkgDir.mkdirs()
+
+		val gStr  = globalStringFields.get()
+		val gBool = globalBooleanFields.get()
+		val gInt  = globalIntFields.get()
+		val gLong = globalLongFields.get()
+		val gFlt  = globalFloatFields.get()
+		val gDbl  = globalDoubleFields.get()
+
+		val dStr  = dimensionStringFields.get()
+		val dBool = dimensionBooleanFields.get()
+		val dInt  = dimensionIntFields.get()
+		val dLong = dimensionLongFields.get()
+		val dFlt  = dimensionFloatFields.get()
+		val dDbl  = dimensionDoubleFields.get()
+
+		val dimNames     = activeDimensionNames.get()
+		val dimObjNames  = dimensionObjectNames.get()
+		val dimVariants  = dimensionActiveVariants.get()
 
 		val content = buildString {
 			appendLine("package $pkg")
 			appendLine()
-			appendLine("${visibilityPrefix}object ${objectName.get()} {")
-			appendLine("\tconst val MODULE_NAME: String = \"${moduleName.get()}\"")
+			appendLine("// Generated by buildkonfig-gradle-plugin — do not edit")
+			appendLine()
+			appendLine("${visPrefix}object $objName {")
+			appendLine()
+			appendLine("    const val BUILD_TYPE: String = \"${btVal.name.lowercase()}\"")
+			appendLine("    const val MODULE_NAME: String = \"${moduleName}\"")
 			if (isDebug)
 				appendLine("\tinline val IS_DEBUG: Boolean get() = true")
 			else
 				appendLine("\tconst val IS_DEBUG: Boolean = false")
-			appendLine("\tconst val VARIANT: String = \"${buildType.get()}\"")
 
-			stringFields.get().forEach { (name, value) ->
-				val escaped = buildString {
-					value.forEach { c ->
-						when (c) {
-							'\\' -> append("\\\\")
-							'\"' -> append("\\\"")
-							'\n' -> append("\\n")
-							'\r' -> append("\\r")
-							'\t' -> append("\\t")
-							'$'  -> append("\\$")
-							else -> append(c)
-						}
-					}
-				}
-				appendLine("\tconst val $name: String = \"$escaped\"")
-			}
-			booleanFields.get().forEach { (name, value) ->
-				appendLine("\tconst val $name: Boolean = $value")
-			}
-			intFields.get().forEach { (name, value) ->
-				appendLine("\tconst val $name: Int = $value")
-			}
-			longFields.get().forEach { (name, value) ->
-				appendLine("\tconst val $name: Long = ${value}L")
-			}
-			floatFields.get().forEach { (name, value) ->
-				val floatValidLiteral = when {
-					value.isNaN() -> "Float.NaN"
-					value == Float.POSITIVE_INFINITY -> "Float.POSITIVE_INFINITY"
-					value == Float.NEGATIVE_INFINITY -> "Float.NEGATIVE_INFINITY"
-					else -> value.toString().let {
-						if (!it.contains('.') && !it.contains('E') && !it.contains('e')) "$it.0" else it
-					} + "f"
-				}
-				appendLine("\tconst val $name: Float = $floatValidLiteral")
-			}
-			doubleFields.get().forEach { (name, value) ->
-				val doubleValidLiteral = when {
-					value.isNaN() -> "Double.NaN"
-					value == Double.POSITIVE_INFINITY -> "Double.POSITIVE_INFINITY"
-					value == Double.NEGATIVE_INFINITY -> "Double.NEGATIVE_INFINITY"
-					else -> value.toString().let {
-						if (!it.contains('.') && !it.contains('E') && !it.contains('e')) "$it.0" else it
-					}
-				}
-				appendLine("\tconst val $name: Double = $doubleValidLiteral")
+			// Global fields
+			if (gStr.isNotEmpty() || gBool.isNotEmpty() || gInt.isNotEmpty() ||
+				gLong.isNotEmpty() || gFlt.isNotEmpty() || gDbl.isNotEmpty()
+			) {
+				appendLine()
+				appendFields("    ", gStr, gBool, gInt, gLong, gFlt, gDbl)
 			}
 
+			// Dimension nested objects
+			for (dimName in dimNames) {
+				val dimObjName   = dimObjNames[dimName] ?: continue
+				val activeVariant = dimVariants[dimName] ?: continue
+				val prefix       = "$dimName|"
+
+				val sF = dStr.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val bF = dBool.filterKeys { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val iF = dInt.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val lF = dLong.filterKeys { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val fF = dFlt.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val dF = dDbl.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+
+				appendLine()
+				appendLine("    ${visPrefix}object $dimObjName /*$dimName*/ {")
+				appendLine()
+				appendLine("        const val VARIANT: String = \"$activeVariant\"")
+				if (sF.isNotEmpty() || bF.isNotEmpty() || iF.isNotEmpty() ||
+					lF.isNotEmpty() || fF.isNotEmpty() || dF.isNotEmpty()
+				) {
+					appendLine()
+					appendFields("        ", sF, bF, iF, lF, fF, dF)
+				}
+				appendLine("    }")
+			}
+
+			appendLine()
 			appendLine("}")
 		}
 
-		pkgDir.resolve("BuildKonfig.kt").writeText(content)
+		pkgDir.resolve("$objName.kt").writeText(content)
+	}
+
+	// ── Helpers ───────────────────────────────────────────────────────────────
+
+	private fun StringBuilder.appendFields(
+		indent: String,
+		stringFields: Map<String, String>,
+		booleanFields: Map<String, Boolean>,
+		intFields: Map<String, Int>,
+		longFields: Map<String, Long>,
+		floatFields: Map<String, Float>,
+		doubleFields: Map<String, Double>
+	) {
+		stringFields.forEach  { (k, v) -> appendLine("${indent}const val $k: String = ${v.toKotlinStringLiteral()}") }
+		booleanFields.forEach { (k, v) -> appendLine("${indent}const val $k: Boolean = $v") }
+		intFields.forEach     { (k, v) -> appendLine("${indent}const val $k: Int = $v") }
+		longFields.forEach    { (k, v) -> appendLine("${indent}const val $k: Long = ${v}L") }
+		floatFields.forEach   { (k, v) -> appendLine("${indent}const val $k: Float = ${v.toKotlinFloat()}") }
+		doubleFields.forEach  { (k, v) -> appendLine("${indent}const val $k: Double = ${v.toKotlinDouble()}") }
+	}
+
+	private fun String.toKotlinStringLiteral(): String {
+		val escaped = buildString {
+			this@toKotlinStringLiteral.forEach { c ->
+				when (c) {
+					'\\'  -> append("\\\\")
+					'"'   -> append("\\\"")
+					'\n'  -> append("\\n")
+					'\r'  -> append("\\r")
+					'\t'  -> append("\\t")
+					'$'   -> append("\\\$")
+					else  -> append(c)
+				}
+			}
+		}
+		return "\"$escaped\""
+	}
+
+	private fun Float.toKotlinFloat(): String = when {
+		isNaN()                         -> "Float.NaN"
+		this == Float.POSITIVE_INFINITY -> "Float.POSITIVE_INFINITY"
+		this == Float.NEGATIVE_INFINITY -> "Float.NEGATIVE_INFINITY"
+		else -> toString().let {
+			if (!it.contains('.') && !it.contains('E') && !it.contains('e')) "$it.0" else it
+		} + "f"
+	}
+
+	private fun Double.toKotlinDouble(): String = when {
+		isNaN()                          -> "Double.NaN"
+		this == Double.POSITIVE_INFINITY -> "Double.POSITIVE_INFINITY"
+		this == Double.NEGATIVE_INFINITY -> "Double.NEGATIVE_INFINITY"
+		else -> toString().let {
+			if (!it.contains('.') && !it.contains('E') && !it.contains('e')) "$it.0" else it
+		}
 	}
 }
