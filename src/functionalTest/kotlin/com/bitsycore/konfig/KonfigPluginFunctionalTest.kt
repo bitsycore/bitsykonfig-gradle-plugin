@@ -309,6 +309,128 @@ class KonfigPluginFunctionalTest {
         assertEquals(TaskOutcome.UP_TO_DATE, second.task(":generateKonfig")?.outcome)
     }
 
+    // ─── Logging & validation ─────────────────────────────────────────────────
+
+    @Test fun `build type source is logged at lifecycle level`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {}
+        """.trimIndent())
+
+        val result = run(listOf("generateKonfig", "-Pkonfig.buildtype=DEBUG"))
+
+        assertTrue(result.output.contains("BUILD_TYPE = debug"))
+        assertTrue(result.output.contains("explicit property -Pkonfig.buildtype=DEBUG"))
+    }
+
+    @Test fun `dimension active variant and reason are logged`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") { field("X", "y") }
+                    variant("dev")  { field("X", "z") }
+                }
+            }
+        """.trimIndent())
+
+        val result = run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=dev"))
+
+        assertTrue(result.output.contains("dim 'env'"))
+        assertTrue(result.output.contains("'dev'"))
+        assertTrue(result.output.contains("konfig.dimension.env=dev"))
+    }
+
+    @Test fun `skipped dimension is logged`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {   // no defaultTo, no property set
+                    variant("prod") { field("X", "y") }
+                }
+            }
+        """.trimIndent())
+
+        val result = run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        assertTrue(result.output.contains("dim 'env'"))
+        assertTrue(result.output.contains("skipped"))
+    }
+
+    @Test fun `unknown variant in property emits a warning`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") { field("X", "y") }
+                }
+            }
+        """.trimIndent())
+
+        val result = run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=typo"))
+
+        assertTrue(result.output.contains("typo"))
+        assertTrue(result.output.contains("not a known variant"))
+    }
+
+    @Test fun `invalid defaultTo fails build with clear error`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env", defaultTo = "nonexistent") {
+                    variant("prod") { field("X", "y") }
+                }
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+        }
+
+        assertTrue(result.isFailure || result.getOrNull()?.output?.contains("nonexistent") == true)
+    }
+
+    @Test fun `invalid field name fails build with clear error`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                field("INVALID NAME", "oops")
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+        }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test fun `generation summary is logged at lifecycle level`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env", defaultTo = "prod") {
+                    variant("prod") { field("URL", "https://prod.example.com") }
+                }
+                field("API_KEY", "abc123")
+            }
+        """.trimIndent())
+
+        val result = run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        // Summary line always present
+        assertTrue(result.output.contains("generated BuildKonfig.kt"))
+        assertTrue(result.output.contains("1 global field"))
+        assertTrue(result.output.contains("1 dimension"))
+    }
+
     // ─── Attribute schema ─────────────────────────────────────────────────────
 
     @Test fun `attribute schema rules are registered automatically`() = withProject { dir, run ->
