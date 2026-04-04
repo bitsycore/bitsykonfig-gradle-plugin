@@ -1,4 +1,4 @@
-package com.bitsycore.buildkonfig
+package com.bitsycore.konfig
 
 enum class Visibility {
 	PUBLIC, INTERNAL

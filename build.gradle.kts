@@ -4,7 +4,16 @@ plugins {
 }
 
 group = "com.bitsycore"
-version = "0.1.0"
+version = providers.gradleProperty("konfig.version").get()
+
+java {
+	sourceCompatibility = JavaVersion.VERSION_17
+	targetCompatibility = JavaVersion.VERSION_17
+}
+
+tasks.withType<org.jetbrains.kotlin.gradle.tasks.KotlinCompile>().configureEach {
+	compilerOptions.jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
+}
 
 repositories {
 	mavenCentral()
@@ -22,9 +31,9 @@ val functionalTest by sourceSets.creating
 gradlePlugin {
 	testSourceSets(functionalTest)
 	plugins {
-		register("buildkonfig") {
-			id = "com.bitsycore.buildkonfig"
-			implementationClass = "com.bitsycore.buildkonfig.BuildKonfigPlugin"
+		register("konfig") {
+			id = "com.bitsycore.konfig"
+			implementationClass = "com.bitsycore.konfig.KonfigPlugin"
 			displayName = "BuildKonfig"
 			description = "A Gradle plugin that generates a BuildConfig-like object for Kotlin Multiplatform projects with build-type variant support."
 		}

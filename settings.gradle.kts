@@ -1,1 +1,1 @@
-rootProject.name = "buildkonfig-gradle-plugin"
+rootProject.name = "konfig-gradle-plugin"

@@ -1,36 +1,38 @@
-package com.bitsycore.buildkonfig
+@file:Suppress("unused")
+
+package com.bitsycore.konfig
 
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
 
-class BuildKonfigPlugin : Plugin<Project> {
+class KonfigPlugin : Plugin<Project> {
 
 	override fun apply(project: Project) {
 		project.dependencies.attributesSchema {
-			attribute(KonfigBuildType.ATTRIBUTE) {
-				compatibilityRules.add(KonfigBuildType.CompatibilityRule::class.java)
-				disambiguationRules.add(KonfigBuildType.DisambiguationRule::class.java)
+			attribute(BuildType.ATTRIBUTE) {
+				compatibilityRules.add(BuildType.CompatibilityRule::class.java)
+				disambiguationRules.add(BuildType.DisambiguationRule::class.java)
 			}
 		}
 
-		val extension = project.extensions.create("buildKonfig", BuildKonfigExtension::class.java).apply {
+		val extension = project.extensions.create("konfig", KonfigExtension::class.java).apply {
 			packageName.convention(project.provider { defaultPackageName(project) })
 			objectName.convention(project.provider { "BuildKonfig" })
 			objectVisibility.convention(project.provider { Visibility.PUBLIC })
-			outputDir.convention(project.layout.buildDirectory.dir("generated/buildkonfig").get())
+			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig").get())
 		}
 
 		val buildTypeProvider = project.providers.gradleProperty("konfig.buildtype")
-			.map { KonfigBuildType.resolve(it) }
+			.map { BuildType.resolve(it) }
 			.orElse(
 				project.provider {
-					KonfigBuildType.resolve(project.gradle.startParameter.taskNames.joinToString(" "))
-						?: KonfigBuildType.RELEASE
+					BuildType.resolve(project.gradle.startParameter.taskNames.joinToString(" "))
+						?: BuildType.RELEASE
 				}
 			)
 
-		val generateTask = project.tasks.register("generateBuildKonfig", GenerateBuildKonfigTask::class.java).apply {
+		val generateTask = project.tasks.register("generateKonfig", GenerateKonfigTask::class.java).apply {
 			configure {
 				moduleName.set(project.name)
 
@@ -41,9 +43,12 @@ class BuildKonfigPlugin : Plugin<Project> {
 				objectName.set(extension.objectName)
 				objectVisibility.set(extension.objectVisibility)
 
-				booleanFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.Boolean })
-				stringFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.String })
-				intFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.Int })
+				booleanFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.BOOL })
+				stringFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.STRING })
+				intFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.INT })
+				longFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.LONG })
+				floatFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.FLOAT })
+				doubleFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.DOUBLE })
 			}
 		}
 
@@ -62,8 +67,8 @@ class BuildKonfigPlugin : Plugin<Project> {
 	}
 
 	private fun <T : Any> providerMap(
-		buildVariant: Provider<KonfigBuildType>,
-		extension: BuildKonfigExtension,
+		buildVariant: Provider<BuildType>,
+		extension: KonfigExtension,
 		filter: (FieldValue<*>) -> FieldValue<T>?
 	): Provider<Map<String, T>> = buildVariant.map { variant ->
 		extension.fields.mapNotNull { (name, fieldValue) ->
