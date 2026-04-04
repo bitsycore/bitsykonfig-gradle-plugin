@@ -8,6 +8,25 @@ import org.gradle.api.Project
 import org.gradle.api.provider.Provider
 import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinSingleTargetExtension
+import java.util.*
+
+/** Holds all typed dimension field maps produced by a single resolution pass. */
+private data class DimensionFieldMaps(
+	val strings: Map<String, String>   = emptyMap(),
+	val booleans: Map<String, Boolean> = emptyMap(),
+	val ints: Map<String, Int>         = emptyMap(),
+	val longs: Map<String, Long>       = emptyMap(),
+	val floats: Map<String, Float>     = emptyMap(),
+	val doubles: Map<String, Double>   = emptyMap(),
+)
+
+/** Bundles all inputs needed to resolve dimension variants in a config-cache-safe provider chain. */
+private data class DimensionContext(
+	val gradleProps: Map<String, String>,
+	val fileProps: Map<String, String>,
+	val flavorDetect: Boolean,
+	val taskNames: List<String>,
+)
 
 class KonfigPlugin : Plugin<Project> {
 
@@ -25,6 +44,21 @@ class KonfigPlugin : Plugin<Project> {
 			objectVisibility.convention(project.provider { Visibility.PUBLIC })
 			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig"))
 		}
+
+		// ── konfig.properties file (tracked as task input) ────────────────────
+		val konfigPropertiesFile = project.layout.projectDirectory.file("konfig.properties")
+		val konfigPropertiesProvider: Provider<Map<String, String>> = project.providers
+			.fileContents(konfigPropertiesFile)
+			.asText
+			.map { text ->
+				val props = Properties()
+				props.load(text.reader())
+				@Suppress("UNCHECKED_CAST")
+				(props as Map<*, *>).entries
+					.mapNotNull { (k, v) -> if (k is String && v is String) k to v else null }
+					.toMap()
+			}
+			.orElse(emptyMap())
 
 		// ── Config-cache-safe providers ───────────────────────────────────────
 		val taskNamesProvider      = project.provider { project.gradle.startParameter.taskNames }
@@ -77,17 +111,21 @@ class KonfigPlugin : Plugin<Project> {
 			)
 
 		// Combined provider for dimension resolvers
-		val combinedProps = dimensionPropsProvider
-			.zip(flavorDetectionEnabled) { props, fe -> props to fe }
-			.zip(taskNamesProvider) { (props, fe), names -> Triple(props, fe, names) }
+		// Packs: gradleProps, konfigFileProps, flavorDetectionEnabled, taskNames
+		val combinedProps: Provider<DimensionContext> = dimensionPropsProvider
+			.zip(konfigPropertiesProvider) { gradleProps, fileProps -> gradleProps to fileProps }
+			.zip(flavorDetectionEnabled) { (gp, fp), fe -> Triple(gp, fp, fe) }
+			.zip(taskNamesProvider) { (gp, fp, fe), names ->
+				DimensionContext(gradleProps = gp, fileProps = fp, flavorDetect = fe, taskNames = names)
+			}
 
 		// Encodes resolution status for EVERY declared dimension (including skipped ones).
 		// Format per entry: "<TAG>\t<variant>\t<reason>"
 		//   TAG = OK | WARN_UNKNOWN | WARN_AMBIGUOUS | SKIP | ERROR
 		val dimensionResolutionLogProvider: Provider<Map<String, String>> =
-			buildTypeProvider.zip(combinedProps) { _, (dimProps, fe, taskNames) ->
+			buildTypeProvider.zip(combinedProps) { _, ctx ->
 				extension.dimensions.associate { dim ->
-					dim.dimensionName to resolveWithSource(dim, dimProps, fe, taskNames)
+					dim.dimensionName to resolveWithSource(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
 				}
 			}
 
@@ -113,9 +151,10 @@ class KonfigPlugin : Plugin<Project> {
 
 				// ── Dimension metadata ────────────────────────────────────────
 				activeDimensionNames.set(
-					buildTypeProvider.zip(combinedProps) { _, (dimProps, fe, taskNames) ->
+					buildTypeProvider.zip(combinedProps) { _, ctx ->
 						extension.dimensions.mapNotNull { dim ->
-							resolveActiveVariant(dim, dimProps, fe, taskNames) ?: return@mapNotNull null
+							resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
+								?: return@mapNotNull null
 							dim.dimensionName
 						}
 					}
@@ -126,21 +165,23 @@ class KonfigPlugin : Plugin<Project> {
 					}
 				)
 				dimensionActiveVariants.set(
-					buildTypeProvider.zip(combinedProps) { _, (dimProps, fe, taskNames) ->
+					buildTypeProvider.zip(combinedProps) { _, ctx ->
 						extension.dimensions.mapNotNull { dim ->
-							val sv = resolveActiveVariant(dim, dimProps, fe, taskNames) ?: return@mapNotNull null
+							val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames)
+								?: return@mapNotNull null
 							dim.dimensionName to sv
 						}.toMap()
 					}
 				)
 
-				// ── Dimension fields (flat: "<dimName>|<fieldName>" -> value) ─
-				dimensionStringFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, String::class.javaObjectType))
-				dimensionBooleanFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, Boolean::class.javaObjectType))
-				dimensionIntFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, Int::class.javaObjectType))
-				dimensionLongFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, Long::class.javaObjectType))
-				dimensionFloatFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, Float::class.javaObjectType))
-				dimensionDoubleFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension, Double::class.javaObjectType))
+				// ── Dimension fields: single pass over all dims/variants/fields ─
+				val dimFieldMapsProvider = resolveDimensionFields(buildTypeProvider, combinedProps, extension)
+				dimensionStringFields.set(dimFieldMapsProvider.map  { it.strings  })
+				dimensionBooleanFields.set(dimFieldMapsProvider.map { it.booleans })
+				dimensionIntFields.set(dimFieldMapsProvider.map     { it.ints     })
+				dimensionLongFields.set(dimFieldMapsProvider.map    { it.longs    })
+				dimensionFloatFields.set(dimFieldMapsProvider.map   { it.floats   })
+				dimensionDoubleFields.set(dimFieldMapsProvider.map  { it.doubles  })
 			}
 		}
 
@@ -186,11 +227,12 @@ class KonfigPlugin : Plugin<Project> {
 	 */
 	private fun resolveActiveVariant(
 		dim: DimensionConfig,
-		dimProps: Map<String, String>,
+		gradleProps: Map<String, String>,
+		fileProps: Map<String, String>,
 		flavorDetect: Boolean,
 		taskNames: List<String>
 	): String? {
-		val encoded = resolveWithSource(dim, dimProps, flavorDetect, taskNames)
+		val encoded = resolveWithSource(dim, gradleProps, fileProps, flavorDetect, taskNames)
 		val parts   = encoded.split("\t", limit = 3)
 		return when (parts[0]) {
 			"OK" -> parts.getOrNull(1)?.takeIf { it.isNotEmpty() }
@@ -210,7 +252,8 @@ class KonfigPlugin : Plugin<Project> {
 	 */
 	private fun resolveWithSource(
 		dim: DimensionConfig,
-		dimProps: Map<String, String>,
+		gradleProps: Map<String, String>,
+		fileProps: Map<String, String>,
 		flavorDetect: Boolean,
 		taskNames: List<String>
 	): String {
@@ -220,19 +263,31 @@ class KonfigPlugin : Plugin<Project> {
 				"(known: ${dim.variants.keys.sorted().joinToString()})"
 		}
 
+		val propKey = "konfig.dimension.${dim.dimensionName}"
+
 		// Priority 1: explicit Gradle property konfig.dimension.<name>=<value>
-		val propKey   = "konfig.dimension.${dim.dimensionName}"
-		val fromProp  = dimProps[dim.dimensionName] ?: dimProps[propKey]
-		if (fromProp != null) {
-			return if (dim.variants.containsKey(fromProp)) {
-				"OK\t$fromProp\tproperty -P$propKey=$fromProp"
+		val fromGradleProp = gradleProps[dim.dimensionName] ?: gradleProps[propKey]
+		if (fromGradleProp != null) {
+			return if (dim.variants.containsKey(fromGradleProp)) {
+				"OK\t$fromGradleProp\tproperty -P$propKey=$fromGradleProp"
 			} else {
-				"WARN_UNKNOWN\t\tproperty -P$propKey=$fromProp is not a known variant " +
+				"WARN_UNKNOWN\t\tproperty -P$propKey=$fromGradleProp is not a known variant " +
 					"(known: ${dim.variants.keys.sorted().joinToString()}) -- dimension skipped"
 			}
 		}
 
-		// Priority 2: task-name detection
+		// Priority 2: konfig.properties file
+		val fromFile = fileProps[dim.dimensionName] ?: fileProps[propKey]
+		if (fromFile != null) {
+			return if (dim.variants.containsKey(fromFile)) {
+				"OK\t$fromFile\tkonfig.properties $propKey=$fromFile"
+			} else {
+				"WARN_UNKNOWN\t\tkonfig.properties $propKey=$fromFile is not a known variant " +
+					"(known: ${dim.variants.keys.sorted().joinToString()}) -- dimension skipped"
+			}
+		}
+
+		// Priority 3: task-name detection
 		if (flavorDetect && taskNames.isNotEmpty()) {
 			val matches = dim.variants.keys.filter { variant ->
 				taskNames.any { task -> task.contains(variant, ignoreCase = true) }
@@ -245,7 +300,7 @@ class KonfigPlugin : Plugin<Project> {
 			}
 		}
 
-		// Priority 3: defaultTo fallback
+		// Priority 4: defaultTo fallback
 		if (dim.defaultVariant != null) {
 			return "OK\t${dim.defaultVariant}\tdefaultTo='${dim.defaultVariant}'"
 		}
@@ -253,6 +308,7 @@ class KonfigPlugin : Plugin<Project> {
 		// Not set
 		val hints = buildList {
 			add("no -P$propKey property")
+			add("no konfig.properties entry")
 			if (!flavorDetect) add("flavor detection disabled")
 			else if (taskNames.isEmpty()) add("no tasks running")
 			else add("no variant name found in tasks [${taskNames.joinToString()}]")
@@ -276,28 +332,42 @@ class KonfigPlugin : Plugin<Project> {
 			.toMap()
 	}
 
+	/**
+	 * Single-pass resolution of all dimension fields across all types.
+	 * Iterates each dimension's active variant once and partitions fields by type,
+	 * rather than running 6 separate passes (one per type).
+	 */
 	@Suppress("UNCHECKED_CAST")
-	private fun <T : Any> resolveDimensionFields(
+	private fun resolveDimensionFields(
 		buildType: Provider<BuildType>,
-		combined: Provider<Triple<Map<String, String>, Boolean, List<String>>>,
+		combined: Provider<DimensionContext>,
 		extension: KonfigExtension,
-		type: Class<T>
-	): Provider<Map<String, T>> =
-		buildType.zip(combined) { bt, (dimProps, fe, taskNames) ->
-			val result = mutableMapOf<String, T>()
+	): Provider<DimensionFieldMaps> =
+		buildType.zip(combined) { bt, ctx ->
+			val strings  = mutableMapOf<String, String>()
+			val booleans = mutableMapOf<String, Boolean>()
+			val ints     = mutableMapOf<String, Int>()
+			val longs    = mutableMapOf<String, Long>()
+			val floats   = mutableMapOf<String, Float>()
+			val doubles  = mutableMapOf<String, Double>()
+
 			for (dim in extension.dimensions) {
-				val sv = resolveActiveVariant(dim, dimProps, fe, taskNames) ?: continue
+				val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames) ?: continue
 				val vc = dim.variants[sv] ?: continue
-				vc.fields
-					.filter { it.type == type }
-					.forEach { field ->
-						val f = field as FieldConfig<T>
-						f.resolve(bt).orNull?.let { value ->
-							result["${dim.dimensionName}|${f.fieldName}"] = value
-						}
+				val prefix = "${dim.dimensionName}|"
+				for (field in vc.fields) {
+					val key = "$prefix${field.fieldName}"
+					when (field.type) {
+						String::class.javaObjectType  -> (field as FieldConfig<String>).resolve(bt).orNull?.let  { strings[key]  = it }
+						Boolean::class.javaObjectType -> (field as FieldConfig<Boolean>).resolve(bt).orNull?.let { booleans[key] = it }
+						Int::class.javaObjectType     -> (field as FieldConfig<Int>).resolve(bt).orNull?.let     { ints[key]     = it }
+						Long::class.javaObjectType    -> (field as FieldConfig<Long>).resolve(bt).orNull?.let    { longs[key]    = it }
+						Float::class.javaObjectType   -> (field as FieldConfig<Float>).resolve(bt).orNull?.let   { floats[key]   = it }
+						Double::class.javaObjectType  -> (field as FieldConfig<Double>).resolve(bt).orNull?.let  { doubles[key]  = it }
 					}
+				}
 			}
-			result as Map<String, T>
+			DimensionFieldMaps(strings, booleans, ints, longs, floats, doubles)
 		}
 
 	// ── Package-name helpers ──────────────────────────────────────────────────

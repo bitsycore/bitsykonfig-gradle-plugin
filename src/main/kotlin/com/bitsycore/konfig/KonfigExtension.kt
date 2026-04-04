@@ -32,6 +32,9 @@ abstract class KonfigExtension @Inject constructor(
 		defaultTo: String? = null,
 		config: DimensionConfig.() -> Unit
 	) {
+		require(dimensions.none { it.dimensionName == name }) {
+			"konfig: dimension '$name' is already declared"
+		}
 		val d = DimensionConfig(name, objectNameOverride, defaultTo, providers)
 		config(d)
 		dimensions.add(d)
@@ -44,6 +47,9 @@ abstract class KonfigExtension @Inject constructor(
 		default: T,
 		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
+		require(globalFields.none { it.fieldName == name }) {
+			"konfig: global field '$name' is already declared"
+		}
 		val f = FieldConfig(name, T::class.javaObjectType, providers, providers.provider { default })
 		config?.invoke(f)
 		globalFields.add(f)
@@ -54,6 +60,9 @@ abstract class KonfigExtension @Inject constructor(
 		default: Provider<T>,
 		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
+		require(globalFields.none { it.fieldName == name }) {
+			"konfig: global field '$name' is already declared"
+		}
 		val f = FieldConfig(name, T::class.javaObjectType, providers, default)
 		config?.invoke(f)
 		globalFields.add(f)

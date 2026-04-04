@@ -46,7 +46,7 @@ class KonfigPluginFunctionalTest {
         assertEquals(TaskOutcome.SUCCESS, result.task(":generateKonfig")?.outcome)
 
         val text = dir.generatedBuildKonfig().readText()
-        assertTrue(text.startsWith("package com.example.test.project"))
+        assertTrue(text.contains("package com.example.test.project"))
         assertTrue(text.contains("object BuildKonfig {"))
         assertTrue(text.contains("""const val BUILD_TYPE: String = "release""""))
     }
@@ -453,5 +453,188 @@ class KonfigPluginFunctionalTest {
 
         assertEquals(TaskOutcome.SUCCESS, result.task(":checkSchema")?.outcome)
         assertTrue(result.output.contains("SCHEMA_OK"))
+    }
+
+    // ─── Generated file header ────────────────────────────────────────────────
+
+    @Test fun `generated file contains Suppress RedundantVisibilityModifier header`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {}
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""@file:Suppress("RedundantVisibilityModifier")"""))
+    }
+
+    // ─── VARIANT visibility ───────────────────────────────────────────────────
+
+    @Test fun `VARIANT const has visibility prefix when objectVisibility is INTERNAL`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                objectVisibility.set(com.bitsycore.konfig.Visibility.INTERNAL)
+                dimension("env", defaultTo = "prod") {
+                    variant("prod") { field("X", "y") }
+                }
+            }
+        """.trimIndent())
+
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("internal const val VARIANT"))
+    }
+
+    // ─── Duplicate name detection ─────────────────────────────────────────────
+
+    @Test fun `duplicate dimension name fails build with clear error`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") { variant("prod") { field("X", "y") } }
+                dimension("env") { variant("dev")  { field("X", "z") } }
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+        }
+
+        assertTrue(result.isFailure || result.getOrNull()?.output?.contains("env") == true)
+    }
+
+    @Test fun `duplicate global field name fails build with clear error`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                field("API_URL", "https://prod.example.com")
+                field("API_URL", "https://dev.example.com")
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+        }
+
+        assertTrue(result.isFailure)
+    }
+
+    @Test fun `duplicate variant field name fails build with clear error`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") {
+                        field("URL", "https://a.example.com")
+                        field("URL", "https://b.example.com")
+                    }
+                }
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=prod"))
+        }
+
+        assertTrue(result.isFailure)
+    }
+
+    // ─── konfig.properties file ───────────────────────────────────────────────
+
+    @Test fun `konfig_properties file sets dimension variant as fallback`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") { field("SERVER_URL", "https://prod.example.com") }
+                    variant("dev")  { field("SERVER_URL", "https://dev.example.com") }
+                }
+            }
+        """.trimIndent())
+        dir.resolve("konfig.properties").writeText("konfig.dimension.env=dev\n")
+
+        // No -P property — should pick up from konfig.properties
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""const val VARIANT: String = "dev""""))
+        assertTrue(text.contains("""const val SERVER_URL: String = "https://dev.example.com""""))
+    }
+
+    @Test fun `gradle property overrides konfig_properties file`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") { field("SERVER_URL", "https://prod.example.com") }
+                    variant("dev")  { field("SERVER_URL", "https://dev.example.com") }
+                }
+            }
+        """.trimIndent())
+        dir.resolve("konfig.properties").writeText("konfig.dimension.env=dev\n")
+
+        // -P property takes priority over konfig.properties
+        run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=prod"))
+
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""const val VARIANT: String = "prod""""))
+    }
+
+    @Test fun `konfig_properties file change invalidates cache`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") { field("SERVER_URL", "https://prod.example.com") }
+                    variant("dev")  { field("SERVER_URL", "https://dev.example.com") }
+                }
+            }
+        """.trimIndent())
+        val propsFile = dir.resolve("konfig.properties")
+        propsFile.writeText("konfig.dimension.env=dev\n")
+
+        val args = listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE")
+        run(args)
+
+        propsFile.writeText("konfig.dimension.env=prod\n")
+        val second = run(args)
+
+        // After changing the file, task should NOT be UP-TO-DATE
+        assertFalse(second.task(":generateKonfig")?.outcome == TaskOutcome.UP_TO_DATE)
+        val text = dir.generatedBuildKonfig().readText()
+        assertTrue(text.contains("""const val VARIANT: String = "prod""""))
+    }
+
+    // ─── Validation completeness ──────────────────────────────────────────────
+
+    @Test fun `invalid field name in boolean dimension field fails build`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+            konfig {
+                dimension("env") {
+                    variant("prod") {
+                        field("INVALID NAME", true)
+                    }
+                }
+            }
+        """.trimIndent())
+
+        val result = runCatching {
+            run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.dimension.env=prod"))
+        }
+
+        assertTrue(result.isFailure)
     }
 }

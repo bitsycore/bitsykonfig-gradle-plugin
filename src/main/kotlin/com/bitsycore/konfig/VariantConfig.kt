@@ -15,6 +15,9 @@ class VariantConfig @PublishedApi internal constructor(
 		default: T,
 		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
+		require(fields.none { it.fieldName == name }) {
+			"konfig: field '$name' is already declared in variant '$variantName'"
+		}
 		val f = FieldConfig(name, T::class.javaObjectType, providerFactory, providerFactory.provider { default })
 		config?.invoke(f)
 		fields.add(f)
@@ -25,6 +28,9 @@ class VariantConfig @PublishedApi internal constructor(
 		default: Provider<T>,
 		noinline config: (FieldConfig<T>.() -> Unit)? = null
 	) {
+		require(fields.none { it.fieldName == name }) {
+			"konfig: field '$name' is already declared in variant '$variantName'"
+		}
 		val f = FieldConfig(name, T::class.javaObjectType, providerFactory, default)
 		config?.invoke(f)
 		fields.add(f)
