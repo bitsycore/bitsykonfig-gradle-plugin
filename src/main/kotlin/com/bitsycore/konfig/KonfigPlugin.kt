@@ -5,6 +5,8 @@ package com.bitsycore.konfig
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
+import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
+import org.jetbrains.kotlin.gradle.dsl.KotlinSingleTargetExtension
 
 class KonfigPlugin : Plugin<Project> {
 
@@ -20,7 +22,7 @@ class KonfigPlugin : Plugin<Project> {
 			packageName.convention(project.provider { defaultPackageName(project) })
 			objectName.convention(project.provider { "BuildKonfig" })
 			objectVisibility.convention(project.provider { Visibility.PUBLIC })
-			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig").get())
+			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig"))
 		}
 
 		val buildTypeProvider = project.providers.gradleProperty("konfig.buildtype")
@@ -50,6 +52,31 @@ class KonfigPlugin : Plugin<Project> {
 				floatFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.FLOAT })
 				doubleFields.set(providerMap(buildTypeProvider, extension) { it as? FieldValue.DOUBLE })
 			}
+		}
+
+		// AUTO-WIRE GENERATED SOURCES INTO KOTLIN SOURCE SETS
+		project.plugins.withId("org.jetbrains.kotlin.multiplatform") {
+			project.extensions.findByType(KotlinMultiplatformExtension::class.java)
+				?.sourceSets
+				?.findByName("commonMain")
+				?.kotlin
+				?.srcDir(extension.outputDir)
+		}
+
+		project.plugins.withId("org.jetbrains.kotlin.jvm") {
+			project.extensions.findByType(KotlinSingleTargetExtension::class.java)
+				?.sourceSets
+				?.findByName("main")
+				?.kotlin
+				?.srcDir(extension.outputDir)
+		}
+
+		project.plugins.withId("org.jetbrains.kotlin.android") {
+			project.extensions.findByType(KotlinSingleTargetExtension::class.java)
+				?.sourceSets
+				?.findByName("main")
+				?.kotlin
+				?.srcDir(extension.outputDir)
 		}
 
 		// ADD DEPENDENCY TO COMPILE TASKS

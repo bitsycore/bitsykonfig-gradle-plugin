@@ -44,6 +44,7 @@ configurations[functionalTest.implementationConfigurationName]
 	.extendsFrom(configurations.testImplementation.get())
 
 dependencies {
+	compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:$embeddedKotlinVersion")
 	testImplementation(kotlin("test"))
 	"functionalTestImplementation"(gradleTestKit())
 }
