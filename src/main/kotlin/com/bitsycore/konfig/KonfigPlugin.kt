@@ -2,6 +2,7 @@
 
 package com.bitsycore.konfig
 
+import com.android.build.api.dsl.CommonExtension
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
@@ -77,6 +78,17 @@ class KonfigPlugin : Plugin<Project> {
 				?.findByName("main")
 				?.kotlin
 				?.srcDir(extension.outputDir)
+		}
+
+		listOf("com.android.application", "com.android.library").forEach { androidPluginId ->
+			project.plugins.withId(androidPluginId) {
+				@Suppress("UnstableApiUsage")
+				(project.extensions.findByName("android") as? CommonExtension<*, *, *, *>)
+					?.sourceSets
+					?.findByName("main")
+					?.kotlin
+					?.srcDir(extension.outputDir)
+			}
 		}
 
 		// ADD DEPENDENCY TO COMPILE TASKS

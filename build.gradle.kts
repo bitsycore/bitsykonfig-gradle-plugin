@@ -45,6 +45,7 @@ configurations[functionalTest.implementationConfigurationName]
 
 dependencies {
 	compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:$embeddedKotlinVersion")
+	compileOnly("com.android.tools.build:gradle:8.0.0")
 	testImplementation(kotlin("test"))
 	"functionalTestImplementation"(gradleTestKit())
 }
