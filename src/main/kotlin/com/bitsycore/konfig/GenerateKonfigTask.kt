@@ -173,7 +173,7 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		val fieldSummary = if (globalFieldCount == 0) "no global fields"
 			else "$globalFieldCount global field(s)"
 		logger.lifecycle("konfig [$mod]: generated $objName.kt  ($fieldSummary, $dimSummary)")
-		logger.info("konfig [$mod]: output -> ${outFile.relativeTo(project.projectDir)}")
+		logger.info("konfig [$mod]: output -> ${outFile.absolutePath}")
 	}
 
 	// ── Validation ────────────────────────────────────────────────────────────
