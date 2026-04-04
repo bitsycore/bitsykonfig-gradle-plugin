@@ -38,7 +38,7 @@ Generates a Kotlin `object BuildKonfig { ... }` at build time, placed in `build/
 - Never capture `project` inside a `Provider.map {}` or `Provider.zip {}` lambda, and **never access `project` inside a `@TaskAction`** — both break caching. Use only declared `@Input`/`@OutputDirectory` properties inside task actions.
 - Use `Class<T>` (`.javaObjectType`) instead of `KClass<T>` — Kotlin's `KClass` uses `SoftReference` internally which Gradle can't serialize
 - Use `gradlePropertiesPrefixedBy()` to read groups of properties — **note:** in Gradle 9.x this returns full property names as keys (prefix is NOT stripped), so always check both `dimProps["env"]` and `dimProps["konfig.dimension.env"]`
-- All `Provider` chains are wired at configuration time; the task action only reads already-resolved values
+- All DSL field values are wrapped in `Provider<T>` from the start — literals via `providers.provider { value }`, external values via `providers.gradleProperty()` / `providers.environmentVariable()` etc. Gradle's config cache serialises the **resolved values** stored in `@Input MapProperty` instances, not the lambda closures that produced them, so the design is correct by construction. External providers are properly tracked as cache inputs through the Provider chain. The only unsafe pattern is bypassing the Provider API entirely (e.g. calling `System.getenv("KEY")` directly inside `field()` or `dimension()`).
 
 **Dimension data in task inputs** uses flat-map encoding (`"<dimName>|<fieldName>"` as map keys) in `MapProperty<String, T>` rather than a managed-type `ListProperty`. This avoids Gradle's `@Nested` managed-type restrictions.
 
