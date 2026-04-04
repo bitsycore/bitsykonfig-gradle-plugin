@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Agent like Claude Code, Copilit, Codex when working with code in this repository.
 
 ## Commands
 
@@ -53,16 +53,16 @@ Generates a Kotlin `object BuildKonfig { ... }` at build time, placed in `build/
 
 ### File map
 
-| File | Role |
-|---|---|
-| `KonfigPlugin.kt` | Entry point — wires providers, registers task, auto-wires source sets, hooks compile tasks |
-| `KonfigExtension.kt` | DSL (`konfig { }`) — top-level `field()` and `dimension()` functions |
-| `DimensionConfig.kt` | DSL node for a dimension — holds variants, `objectNameOverride`, `defaultVariant`, computes Kotlin object name |
-| `VariantConfig.kt` | DSL node for a variant — holds `List<FieldConfig<*>>` |
-| `FieldConfig.kt` | Single typed field with optional `debug()`/`release()` overrides |
-| `GenerateKonfigTask.kt` | `@CacheableTask` — validates inputs, logs detection results, writes the `.kt` file |
-| `BuildType.kt` | `enum` with regex-based task-name detection and Gradle attribute rules |
-| `Visibility.kt` | `PUBLIC` / `INTERNAL` enum |
+| File                    | Role                                                                                                           |
+|-------------------------|----------------------------------------------------------------------------------------------------------------|
+| `KonfigPlugin.kt`       | Entry point — wires providers, registers task, auto-wires source sets, hooks compile tasks                     |
+| `KonfigExtension.kt`    | DSL (`konfig { }`) — top-level `field()` and `dimension()` functions                                           |
+| `DimensionConfig.kt`    | DSL node for a dimension — holds variants, `objectNameOverride`, `defaultVariant`, computes Kotlin object name |
+| `VariantConfig.kt`      | DSL node for a variant — holds `List<FieldConfig<*>>`                                                          |
+| `FieldConfig.kt`        | Single typed field with optional `debug()`/`release()` overrides                                               |
+| `GenerateKonfigTask.kt` | `@CacheableTask` — validates inputs, logs detection results, writes the `.kt` file                             |
+| `BuildType.kt`          | `enum` with regex-based task-name detection and Gradle attribute rules                                         |
+| `Visibility.kt`         | `PUBLIC` / `INTERNAL` enum                                                                                     |
 
 Stub files (`VariantFieldConfig.kt`, `VariantDimensionConfig.kt`, `VariantValue.kt`, `DimensionTaskInput.kt`) are empty package declarations left from a previous design — they can be deleted.
 
@@ -76,12 +76,12 @@ Stub files (`VariantFieldConfig.kt`, `VariantDimensionConfig.kt`, `VariantValue.
 
 ### Logging levels used in GenerateKonfigTask
 
-| Output | Level | When |
-|---|---|---|
-| `BUILD_TYPE = release (…reason…)` | `lifecycle` | Always |
-| `dim 'env' -> 'dev'  (…reason…)` | `lifecycle` | Active dimension |
-| `dim 'env' -> skipped (…reason…)` | `lifecycle` | No variant resolved |
-| `generated BuildKonfig.kt (…)` | `lifecycle` | Always (summary) |
-| Unknown/ambiguous variant | `warn` | Bad `-P` value or multiple task matches |
-| Field/dim details | `info` | With `--info` |
-| Config errors (bad `defaultTo`, invalid identifier) | `GradleException` | Fail fast |
+| Output                                              | Level             | When                                    |
+|-----------------------------------------------------|-------------------|-----------------------------------------|
+| `BUILD_TYPE = release (…reason…)`                   | `lifecycle`       | Always                                  |
+| `dim 'env' -> 'dev'  (…reason…)`                    | `lifecycle`       | Active dimension                        |
+| `dim 'env' -> skipped (…reason…)`                   | `lifecycle`       | No variant resolved                     |
+| `generated BuildKonfig.kt (…)`                      | `lifecycle`       | Always (summary)                        |
+| Unknown/ambiguous variant                           | `warn`            | Bad `-P` value or multiple task matches |
+| Field/dim details                                   | `info`            | With `--info`                           |
+| Config errors (bad `defaultTo`, invalid identifier) | `GradleException` | Fail fast                               |
