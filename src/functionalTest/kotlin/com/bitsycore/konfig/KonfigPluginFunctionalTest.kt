@@ -605,4 +605,39 @@ class KonfigPluginFunctionalTest {
 
         assertTrue(result.isFailure)
     }
+
+    // ─── Force regen ──────────────────────────────────────────────────────────
+
+    @Test fun `konfig force prevents task from being UP-TO-DATE on second run`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+        """.trimIndent())
+
+        val args = listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE", "-Pkonfig.force")
+        run(args)
+        val second = run(args)
+
+        assertFalse(
+            second.task(":generateKonfig")?.outcome == TaskOutcome.UP_TO_DATE,
+            "Expected generateKonfig to re-run when -Pkonfig.force is set, but it was UP_TO_DATE"
+        )
+    }
+
+    @Test fun `without konfig force task is UP-TO-DATE on second run`() = withProject { dir, run ->
+        dir.resolve("build.gradle.kts").writeText("""
+            plugins { id("com.bitsycore.konfig") }
+            group = "com.example"
+        """.trimIndent())
+
+        val args = listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE")
+        run(args)
+        val second = run(args)
+
+        assertEquals(
+            TaskOutcome.UP_TO_DATE,
+            second.task(":generateKonfig")?.outcome,
+            "Expected generateKonfig to be UP_TO_DATE on second run without -Pkonfig.force"
+        )
+    }
 }

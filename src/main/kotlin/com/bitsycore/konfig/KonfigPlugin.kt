@@ -132,8 +132,12 @@ class KonfigPlugin : Plugin<Project> {
 		// MARK: Task Registration
 		// =========================================================================
 
+		val forceRegen = project.providers.gradleProperty("konfig.force").isPresent
+
 		val generateTask = project.tasks.register("generateKonfig", GenerateKonfigTask::class.java).apply {
 			configure {
+				if (forceRegen) outputs.upToDateWhen { false }
+
 				moduleName.set(project.name)
 				buildType.set(buildTypeProvider)
 				buildTypeSource.set(buildTypeSourceProvider)
