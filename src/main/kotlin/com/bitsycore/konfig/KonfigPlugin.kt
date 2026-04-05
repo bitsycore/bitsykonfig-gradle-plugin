@@ -36,7 +36,7 @@ class KonfigPlugin : Plugin<Project> {
 		val defaultPkgProvider = projectGroup.map { group -> defaultPackageName(projectName, group) }
 
 		val extension = project.extensions.create("konfig", KonfigExtension::class.java).apply {
-			packageNameProp.convention(defaultPkgProvider)
+			objectPackageProp.convention(defaultPkgProvider)
 			objectNameProp.convention(project.providers.provider { "BuildKonfig" })
 			objectVisibilityProp.convention(project.providers.provider { Visibility.PUBLIC })
 			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig"))
@@ -135,7 +135,7 @@ class KonfigPlugin : Plugin<Project> {
 				buildTypeSource.set(buildTypeSourceProvider)
 				dimensionResolutionLog.set(dimensionResolutionLogProvider)
 				outputDirectory.set(extension.outputDir)
-				packageName.set(extension.packageNameProp)
+				packageName.set(extension.objectPackageProp)
 				objectName.set(extension.objectNameProp)
 				objectVisibility.set(extension.objectVisibilityProp)
 

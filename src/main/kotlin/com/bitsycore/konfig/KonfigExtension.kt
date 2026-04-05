@@ -12,7 +12,7 @@ abstract class KonfigExtension @Inject constructor(
 ) {
     // ── Backing Gradle properties (used by the plugin for lazy wiring) ────────
 
-    internal val packageNameProp:      Property<String>     = objects.property(String::class.java)
+    internal val objectPackageProp:      Property<String>     = objects.property(String::class.java)
     internal val objectNameProp:       Property<String>     = objects.property(String::class.java)
     internal val objectVisibilityProp: Property<Visibility> = objects.property(Visibility::class.java)
 
@@ -22,9 +22,9 @@ abstract class KonfigExtension @Inject constructor(
     // ── User-facing var properties ────────────────────────────────────────────
 
     /** Package for the generated object (e.g. `"com.example.app"`). */
-    var packageName: String
-        get()      = packageNameProp.get()
-        set(value) = packageNameProp.set(value)
+    var objectPackage: String
+        get()      = objectPackageProp.get()
+        set(value) = objectPackageProp.set(value)
 
     /** Name of the generated Kotlin object (default: `"BuildKonfig"`). */
     var objectName: String
