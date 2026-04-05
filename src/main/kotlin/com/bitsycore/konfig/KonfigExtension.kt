@@ -68,14 +68,12 @@ abstract class KonfigExtension @Inject constructor(
     inline fun <reified T : Any> field(
         name: String,
         default: T,
-        noinline config: (FieldModifierScope<T>.() -> Unit)? = null
-    ) = globalScope.field(name, default, config)
+    ) = globalScope.field(name, default)
 
     inline fun <reified T : Any> field(
         name: String,
         default: Provider<T>,
-        noinline config: (FieldModifierScope<T>.() -> Unit)? = null
-    ) = globalScope.field(name, default, config)
+    ) = globalScope.field(name, default)
 
     fun debug(block: BuildTypedFieldDeclScope.() -> Unit)   = globalScope.debug(block)
     fun release(block: BuildTypedFieldDeclScope.() -> Unit) = globalScope.release(block)

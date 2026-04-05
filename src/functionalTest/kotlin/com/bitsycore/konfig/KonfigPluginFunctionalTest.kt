@@ -105,12 +105,8 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                field("BASE_URL", "https://prod.example.com") {
-                    debug("https://dev.example.com")
-                }
-                field("LOGGING", false) {
-                    debug(true)
-                }
+                field("BASE_URL", "https://prod.example.com").debug("https://dev.example.com")
+                field("LOGGING", false).debug(true)
             }
         """.trimIndent())
 
@@ -126,9 +122,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                field("BASE_URL", "https://prod.example.com") {
-                    debug("https://dev.example.com")
-                }
+                field("BASE_URL", "https://prod.example.com").debug("https://dev.example.com")
             }
         """.trimIndent())
 
@@ -261,9 +255,7 @@ class KonfigPluginFunctionalTest {
             konfig {
                 dimension("env") {
                     variant("dev") {
-                        field("URL", "https://dev.example.com") {
-                            debug("https://dev-debug.example.com")
-                        }
+                        field("URL", "https://dev.example.com").debug("https://dev-debug.example.com")
                     }
                 }
             }

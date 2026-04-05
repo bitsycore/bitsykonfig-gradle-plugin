@@ -376,6 +376,7 @@ class KonfigPlugin : Plugin<Project> {
 	private fun defaultPackageName(projectName: String, projectGroup: String): String {
 		val group = projectGroup
 			.lowercase()
+			.replace("-", ".")
 			.takeIf { it.isNotBlank() && it != "unspecified" }
 		val artifact = projectName
 			.replace("-", ".")
