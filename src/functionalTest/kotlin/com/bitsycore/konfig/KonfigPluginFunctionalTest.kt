@@ -145,7 +145,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                objectVisibility.set(com.bitsycore.konfig.Visibility.INTERNAL)
+                objectVisibility = com.bitsycore.konfig.Visibility.INTERNAL
             }
         """.trimIndent())
 
@@ -160,7 +160,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                objectName.set("AppConfig")
+                objectName = "AppConfig"
             }
         """.trimIndent())
 
@@ -431,30 +431,6 @@ class KonfigPluginFunctionalTest {
         assertTrue(result.output.contains("1 dimension"))
     }
 
-    // ─── Attribute schema ─────────────────────────────────────────────────────
-
-    @Test fun `attribute schema rules are registered automatically`() = withProject { dir, run ->
-        dir.resolve("build.gradle.kts").writeText("""
-            plugins { id("com.bitsycore.konfig") }
-            group = "com.example"
-            konfig {}
-
-            tasks.register("checkSchema") {
-                doLast {
-                    val schema = project.dependencies.attributesSchema
-                    val attr = com.bitsycore.konfig.BuildType.ATTRIBUTE
-                    schema.getMatchingStrategy(attr)
-                    println("SCHEMA_OK")
-                }
-            }
-        """.trimIndent())
-
-        val result = run(listOf("checkSchema"))
-
-        assertEquals(TaskOutcome.SUCCESS, result.task(":checkSchema")?.outcome)
-        assertTrue(result.output.contains("SCHEMA_OK"))
-    }
-
     // ─── Generated file header ────────────────────────────────────────────────
 
     @Test fun `generated file contains Suppress RedundantVisibilityModifier header`() = withProject { dir, run ->
@@ -477,7 +453,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                objectVisibility.set(com.bitsycore.konfig.Visibility.INTERNAL)
+                objectVisibility = com.bitsycore.konfig.Visibility.INTERNAL
                 dimension("env", defaultTo = "prod") {
                     variant("prod") { field("X", "y") }
                 }

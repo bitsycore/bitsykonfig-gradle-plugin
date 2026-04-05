@@ -4,67 +4,79 @@ import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
 import org.gradle.api.provider.Provider
-import org.gradle.api.provider.ProviderFactory
 import javax.inject.Inject
 
+@KonfigDsl
 abstract class KonfigExtension @Inject constructor(
-	private val objects: ObjectFactory,
-	@PublishedApi
-	internal val providers: ProviderFactory
+    private val objects: ObjectFactory,
 ) {
+    // ── Backing Gradle properties (used by the plugin for lazy wiring) ────────
 
-	val packageName: Property<String> = objects.property(String::class.java)
-	val objectName: Property<String> = objects.property(String::class.java)
-	val objectVisibility: Property<Visibility> = objects.property(Visibility::class.java)
-	val outputDir: DirectoryProperty = objects.directoryProperty()
+    internal val packageNameProp:      Property<String>     = objects.property(String::class.java)
+    internal val objectNameProp:       Property<String>     = objects.property(String::class.java)
+    internal val objectVisibilityProp: Property<Visibility> = objects.property(Visibility::class.java)
 
-	@PublishedApi
-	internal val dimensions: MutableList<DimensionConfig> = mutableListOf()
+    /** Output directory — kept as [DirectoryProperty] for full Gradle lazy semantics. */
+    val outputDir: DirectoryProperty = objects.directoryProperty()
 
-	@PublishedApi
-	internal val globalFields: MutableList<FieldConfig<*>> = mutableListOf()
+    // ── User-facing var properties ────────────────────────────────────────────
 
-	// ─── Dimension DSL ───────────────────────────────────────────────────────
+    /** Package for the generated object (e.g. `"com.example.app"`). */
+    var packageName: String
+        get()      = packageNameProp.get()
+        set(value) = packageNameProp.set(value)
 
-	fun dimension(
-		name: String,
-		objectNameOverride: String? = null,
-		defaultTo: String? = null,
-		config: DimensionConfig.() -> Unit
-	) {
-		require(dimensions.none { it.dimensionName == name }) {
-			"konfig: dimension '$name' is already declared"
-		}
-		val d = DimensionConfig(name, objectNameOverride, defaultTo, providers)
-		config(d)
-		dimensions.add(d)
-	}
+    /** Name of the generated Kotlin object (default: `"BuildKonfig"`). */
+    var objectName: String
+        get()      = objectNameProp.get()
+        set(value) = objectNameProp.set(value)
 
-	// ─── Global field DSL ────────────────────────────────────────────────────
+    /** Visibility of the generated object (default: [Visibility.PUBLIC]). */
+    var objectVisibility: Visibility
+        get()      = objectVisibilityProp.get()
+        set(value) = objectVisibilityProp.set(value)
 
-	inline fun <reified T : Any> field(
-		name: String,
-		default: T,
-		noinline config: (FieldConfig<T>.() -> Unit)? = null
-	) {
-		require(globalFields.none { it.fieldName == name }) {
-			"konfig: global field '$name' is already declared"
-		}
-		val f = FieldConfig(name, T::class.javaObjectType, providers, providers.provider { default })
-		config?.invoke(f)
-		globalFields.add(f)
-	}
+    // ── DSL internals ─────────────────────────────────────────────────────────
 
-	inline fun <reified T : Any> field(
-		name: String,
-		default: Provider<T>,
-		noinline config: (FieldConfig<T>.() -> Unit)? = null
-	) {
-		require(globalFields.none { it.fieldName == name }) {
-			"konfig: global field '$name' is already declared"
-		}
-		val f = FieldConfig(name, T::class.javaObjectType, providers, default)
-		config?.invoke(f)
-		globalFields.add(f)
-	}
+    @PublishedApi
+    internal val dimensions: MutableList<DimensionConfig> = mutableListOf()
+
+    /** Backing store for global fields — reuses [VariantConfig] for its field/debug/release logic. */
+    @PublishedApi
+    internal val globalScope: VariantConfig = VariantConfig("\$global")
+
+    internal val globalFields: List<FieldConfig<*>> get() = globalScope.fields
+
+    // ─── Dimension DSL ────────────────────────────────────────────────────────
+
+    fun dimension(
+        name: String,
+        objectNameOverride: String? = null,
+        defaultTo: String? = null,
+        config: DimensionConfig.() -> Unit
+    ) {
+        require(dimensions.none { it.dimensionName == name }) {
+            "konfig: dimension '$name' is already declared"
+        }
+        val d = DimensionConfig(name, objectNameOverride, defaultTo)
+        config(d)
+        dimensions.add(d)
+    }
+
+    // ─── Global field DSL — delegates to globalScope ──────────────────────────
+
+    inline fun <reified T : Any> field(
+        name: String,
+        default: T,
+        noinline config: (FieldModifierScope<T>.() -> Unit)? = null
+    ) = globalScope.field(name, default, config)
+
+    inline fun <reified T : Any> field(
+        name: String,
+        default: Provider<T>,
+        noinline config: (FieldModifierScope<T>.() -> Unit)? = null
+    ) = globalScope.field(name, default, config)
+
+    fun debug(block: BuildTypedFieldDeclScope.() -> Unit)   = globalScope.debug(block)
+    fun release(block: BuildTypedFieldDeclScope.() -> Unit) = globalScope.release(block)
 }

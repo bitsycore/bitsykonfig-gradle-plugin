@@ -31,17 +31,14 @@ private data class DimensionContext(
 class KonfigPlugin : Plugin<Project> {
 
 	override fun apply(project: Project) {
-		project.dependencies.attributesSchema {
-			attribute(BuildType.ATTRIBUTE) {
-				compatibilityRules.add(BuildType.CompatibilityRule::class.java)
-				disambiguationRules.add(BuildType.DisambiguationRule::class.java)
-			}
-		}
+		val projectName  = project.name
+		val projectGroup = project.providers.provider { project.group.toString() }
+		val defaultPkgProvider = projectGroup.map { group -> defaultPackageName(projectName, group) }
 
 		val extension = project.extensions.create("konfig", KonfigExtension::class.java).apply {
-			packageName.convention(project.provider { defaultPackageName(project) })
-			objectName.convention(project.provider { "BuildKonfig" })
-			objectVisibility.convention(project.provider { Visibility.PUBLIC })
+			packageNameProp.convention(defaultPkgProvider)
+			objectNameProp.convention(project.providers.provider { "BuildKonfig" })
+			objectVisibilityProp.convention(project.providers.provider { Visibility.PUBLIC })
 			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig"))
 		}
 
@@ -61,18 +58,19 @@ class KonfigPlugin : Plugin<Project> {
 			.orElse(emptyMap())
 
 		// ── Config-cache-safe providers ───────────────────────────────────────
-		val taskNamesProvider      = project.provider { project.gradle.startParameter.taskNames }
-		val dimensionPropsProvider = project.providers.gradlePropertiesPrefixedBy("konfig.dimension.")
+		val taskNamesList              = project.gradle.startParameter.taskNames
+		val taskNamesProvider          = project.providers.provider { taskNamesList }
+		val dimensionPropsProvider     = project.providers.gradlePropertiesPrefixedBy("konfig.dimension.")
 
 		val buildTypeDetectionEnabled: Provider<Boolean> = project.providers
 			.gradleProperty("konfig.android.buildtypedetection")
 			.map { it != "false" }
-			.orElse(project.provider { true })
+			.orElse(project.providers.provider { true })
 
 		val flavorDetectionEnabled: Provider<Boolean> = project.providers
 			.gradleProperty("konfig.android.flavordetection")
 			.map { it != "false" }
-			.orElse(project.provider { true })
+			.orElse(project.providers.provider { true })
 
 		// ── Build-type provider with source tracking ──────────────────────────
 		val rawBuildTypeProp = project.providers.gradleProperty("konfig.buildtype")
@@ -137,9 +135,9 @@ class KonfigPlugin : Plugin<Project> {
 				buildTypeSource.set(buildTypeSourceProvider)
 				dimensionResolutionLog.set(dimensionResolutionLogProvider)
 				outputDirectory.set(extension.outputDir)
-				packageName.set(extension.packageName)
-				objectName.set(extension.objectName)
-				objectVisibility.set(extension.objectVisibility)
+				packageName.set(extension.packageNameProp)
+				objectName.set(extension.objectNameProp)
+				objectVisibility.set(extension.objectVisibilityProp)
 
 				// ── Global fields ─────────────────────────────────────────────
 				globalStringFields.set(resolveGlobalFields(buildTypeProvider, extension, String::class.javaObjectType))
@@ -327,7 +325,7 @@ class KonfigPlugin : Plugin<Project> {
 			.filter { it.type == type }
 			.mapNotNull { field ->
 				val f = field as FieldConfig<T>
-				f.resolve(bt).orNull?.let { f.fieldName to it }
+				f.resolve(bt)?.orNull?.let { f.fieldName to it }
 			}
 			.toMap()
 	}
@@ -355,28 +353,47 @@ class KonfigPlugin : Plugin<Project> {
 				val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames) ?: continue
 				val vc = dim.variants[sv] ?: continue
 				val prefix = "${dim.dimensionName}|"
-				for (field in vc.fields) {
+
+				// Merge common fields first (lower priority), then variant fields override
+				val mergedFields = mergeVariantFields(dim.commonConfig.fields, vc.fields)
+
+				for (field in mergedFields) {
 					val key = "$prefix${field.fieldName}"
 					when (field.type) {
-						String::class.javaObjectType  -> (field as FieldConfig<String>).resolve(bt).orNull?.let  { strings[key]  = it }
-						Boolean::class.javaObjectType -> (field as FieldConfig<Boolean>).resolve(bt).orNull?.let { booleans[key] = it }
-						Int::class.javaObjectType     -> (field as FieldConfig<Int>).resolve(bt).orNull?.let     { ints[key]     = it }
-						Long::class.javaObjectType    -> (field as FieldConfig<Long>).resolve(bt).orNull?.let    { longs[key]    = it }
-						Float::class.javaObjectType   -> (field as FieldConfig<Float>).resolve(bt).orNull?.let   { floats[key]   = it }
-						Double::class.javaObjectType  -> (field as FieldConfig<Double>).resolve(bt).orNull?.let  { doubles[key]  = it }
+						String::class.javaObjectType  -> (field as FieldConfig<String>).resolve(bt)?.orNull?.let  { strings[key]  = it }
+						Boolean::class.javaObjectType -> (field as FieldConfig<Boolean>).resolve(bt)?.orNull?.let { booleans[key] = it }
+						Int::class.javaObjectType     -> (field as FieldConfig<Int>).resolve(bt)?.orNull?.let     { ints[key]     = it }
+						Long::class.javaObjectType    -> (field as FieldConfig<Long>).resolve(bt)?.orNull?.let    { longs[key]    = it }
+						Float::class.javaObjectType   -> (field as FieldConfig<Float>).resolve(bt)?.orNull?.let   { floats[key]   = it }
+						Double::class.javaObjectType  -> (field as FieldConfig<Double>).resolve(bt)?.orNull?.let  { doubles[key]  = it }
 					}
 				}
 			}
 			DimensionFieldMaps(strings, booleans, ints, longs, floats, doubles)
 		}
 
+	// ── Merge helpers ─────────────────────────────────────────────────────────
+
+	/**
+	 * Returns a merged list of fields: [commonFields] as the base, with any field in
+	 * [variantFields] taking precedence (variant fields win by name).
+	 */
+	private fun mergeVariantFields(
+		commonFields: List<FieldConfig<*>>,
+		variantFields: List<FieldConfig<*>>
+	): List<FieldConfig<*>> {
+		if (commonFields.isEmpty()) return variantFields
+		val variantNames = variantFields.map { it.fieldName }.toHashSet()
+		return commonFields.filter { it.fieldName !in variantNames } + variantFields
+	}
+
 	// ── Package-name helpers ──────────────────────────────────────────────────
 
-	private fun defaultPackageName(project: Project): String {
-		val group = project.group.toString()
+	private fun defaultPackageName(projectName: String, projectGroup: String): String {
+		val group = projectGroup
 			.lowercase()
 			.takeIf { it.isNotBlank() && it != "unspecified" }
-		val artifact = project.name
+		val artifact = projectName
 			.replace("-", ".")
 			.replace(Regex("[^A-Za-z0-9.]"), "")
 		return if (group != null) "$group.$artifact" else artifact.ensureValidPackage()
