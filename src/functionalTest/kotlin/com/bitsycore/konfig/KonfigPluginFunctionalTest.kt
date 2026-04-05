@@ -118,7 +118,7 @@ class KonfigPluginFunctionalTest {
 
         val text = dir.generatedBuildKonfig().readText()
         assertTrue(text.contains("""const val BASE_URL: String = "https://dev.example.com""""))
-        assertTrue(text.contains("const val LOGGING: Boolean = true"))
+        assertTrue(text.contains("inline val LOGGING: Boolean get() = true"))
     }
 
     @Test fun `release build uses default when no release override`() = withProject { dir, run ->
@@ -448,7 +448,7 @@ class KonfigPluginFunctionalTest {
 
     // ─── VARIANT visibility ───────────────────────────────────────────────────
 
-    @Test fun `VARIANT const has visibility prefix when objectVisibility is INTERNAL`() = withProject { dir, run ->
+    @Test fun `VARIANT Object has visibility prefix when objectVisibility is INTERNAL`() = withProject { dir, run ->
         dir.resolve("build.gradle.kts").writeText("""
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
@@ -463,7 +463,7 @@ class KonfigPluginFunctionalTest {
         run(listOf("generateKonfig", "-Pkonfig.buildtype=RELEASE"))
 
         val text = dir.generatedBuildKonfig().readText()
-        assertTrue(text.contains("internal const val VARIANT"))
+        assertTrue(text.contains("internal object Env"))
     }
 
     // ─── Duplicate name detection ─────────────────────────────────────────────

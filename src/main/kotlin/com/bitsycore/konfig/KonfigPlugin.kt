@@ -10,16 +10,6 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinMultiplatformExtension
 import org.jetbrains.kotlin.gradle.dsl.KotlinSingleTargetExtension
 import java.util.*
 
-/** Holds all typed dimension field maps produced by a single resolution pass. */
-private data class DimensionFieldMaps(
-	val strings: Map<String, String>   = emptyMap(),
-	val booleans: Map<String, Boolean> = emptyMap(),
-	val ints: Map<String, Int>         = emptyMap(),
-	val longs: Map<String, Long>       = emptyMap(),
-	val floats: Map<String, Float>     = emptyMap(),
-	val doubles: Map<String, Double>   = emptyMap(),
-)
-
 /** Bundles all inputs needed to resolve dimension variants in a config-cache-safe provider chain. */
 private data class DimensionContext(
 	val gradleProps: Map<String, String>,
@@ -42,7 +32,10 @@ class KonfigPlugin : Plugin<Project> {
 			outputDir.convention(project.layout.buildDirectory.dir("generated/konfig"))
 		}
 
-		// ── konfig.properties file (tracked as task input) ────────────────────
+		// =========================================================================
+		// MARK: konfig.properties
+		// =========================================================================
+
 		val konfigPropertiesFile = project.layout.projectDirectory.file("konfig.properties")
 		val konfigPropertiesProvider: Provider<Map<String, String>> = project.providers
 			.fileContents(konfigPropertiesFile)
@@ -57,7 +50,10 @@ class KonfigPlugin : Plugin<Project> {
 			}
 			.orElse(emptyMap())
 
-		// ── Config-cache-safe providers ───────────────────────────────────────
+		// =========================================================================
+		// MARK: Cache Safe Providers
+		// =========================================================================
+
 		val taskNamesList              = project.gradle.startParameter.taskNames
 		val taskNamesProvider          = project.providers.provider { taskNamesList }
 		val dimensionPropsProvider     = project.providers.gradlePropertiesPrefixedBy("konfig.dimension.")
@@ -72,9 +68,11 @@ class KonfigPlugin : Plugin<Project> {
 			.map { it != "false" }
 			.orElse(project.providers.provider { true })
 
-		// ── Build-type provider with source tracking ──────────────────────────
-		val rawBuildTypeProp = project.providers.gradleProperty("konfig.buildtype")
+		// =========================================================================
+		// MARK: Build Type Provider
+		// =========================================================================
 
+		val rawBuildTypeProp = project.providers.gradleProperty("konfig.buildtype")
 		val buildTypeProvider: Provider<BuildType> = rawBuildTypeProp
 			.map { BuildType.resolve(it) ?: BuildType.RELEASE }
 			.orElse(
@@ -84,8 +82,11 @@ class KonfigPlugin : Plugin<Project> {
 				}
 			)
 
+		// =========================================================================
 		// Encodes WHY the build type was chosen; stored as a task input for execution-time logging.
 		// Format: plain descriptive string.
+		// =========================================================================
+
 		val buildTypeSourceProvider: Provider<String> = rawBuildTypeProp
 			.map { raw ->
 				val resolved = BuildType.resolve(raw)
@@ -127,7 +128,10 @@ class KonfigPlugin : Plugin<Project> {
 				}
 			}
 
-		// ── Task registration ─────────────────────────────────────────────────
+		// =========================================================================
+		// MARK: Task Registration
+		// =========================================================================
+
 		val generateTask = project.tasks.register("generateKonfig", GenerateKonfigTask::class.java).apply {
 			configure {
 				moduleName.set(project.name)
@@ -135,17 +139,12 @@ class KonfigPlugin : Plugin<Project> {
 				buildTypeSource.set(buildTypeSourceProvider)
 				dimensionResolutionLog.set(dimensionResolutionLogProvider)
 				outputDirectory.set(extension.outputDir)
-				packageName.set(extension.objectPackageProp)
+				objectPackage.set(extension.objectPackageProp)
 				objectName.set(extension.objectNameProp)
 				objectVisibility.set(extension.objectVisibilityProp)
 
 				// ── Global fields ─────────────────────────────────────────────
-				globalStringFields.set(resolveGlobalFields(buildTypeProvider, extension, String::class.javaObjectType))
-				globalBooleanFields.set(resolveGlobalFields(buildTypeProvider, extension, Boolean::class.javaObjectType))
-				globalIntFields.set(resolveGlobalFields(buildTypeProvider, extension, Int::class.javaObjectType))
-				globalLongFields.set(resolveGlobalFields(buildTypeProvider, extension, Long::class.javaObjectType))
-				globalFloatFields.set(resolveGlobalFields(buildTypeProvider, extension, Float::class.javaObjectType))
-				globalDoubleFields.set(resolveGlobalFields(buildTypeProvider, extension, Double::class.javaObjectType))
+				globalFields.set(resolveFields(buildTypeProvider, extension.globalFields))
 
 				// ── Dimension metadata ────────────────────────────────────────
 				activeDimensionNames.set(
@@ -172,18 +171,15 @@ class KonfigPlugin : Plugin<Project> {
 					}
 				)
 
-				// ── Dimension fields: single pass over all dims/variants/fields ─
-				val dimFieldMapsProvider = resolveDimensionFields(buildTypeProvider, combinedProps, extension)
-				dimensionStringFields.set(dimFieldMapsProvider.map  { it.strings  })
-				dimensionBooleanFields.set(dimFieldMapsProvider.map { it.booleans })
-				dimensionIntFields.set(dimFieldMapsProvider.map     { it.ints     })
-				dimensionLongFields.set(dimFieldMapsProvider.map    { it.longs    })
-				dimensionFloatFields.set(dimFieldMapsProvider.map   { it.floats   })
-				dimensionDoubleFields.set(dimFieldMapsProvider.map  { it.doubles  })
+				// ── Dimension fields ──────────────────────────────────────────
+				dimensionFields.set(resolveDimensionFields(buildTypeProvider, combinedProps, extension))
 			}
 		}
 
-		// ── Auto-wire generated sources into Kotlin source sets ───────────────
+		// =========================================================================
+		// MARK: Auto Sourceset
+		// =========================================================================
+
 		project.plugins.withId("org.jetbrains.kotlin.multiplatform") {
 			project.extensions.findByType(KotlinMultiplatformExtension::class.java)
 				?.sourceSets?.findByName("commonMain")?.kotlin?.srcDir(extension.outputDir)
@@ -204,7 +200,10 @@ class KonfigPlugin : Plugin<Project> {
 			}
 		}
 
-		// ── Hook compile tasks ────────────────────────────────────────────────
+		// ==============================================
+		// MARK: Task Dependency
+		// ==============================================
+
 		project.tasks.configureEach {
 			if (
 				name.contains("sourcesJar") || name.contains("SourcesJar")
@@ -217,7 +216,9 @@ class KonfigPlugin : Plugin<Project> {
 		}
 	}
 
-	// ── Resolution helpers ────────────────────────────────────────────────────
+	// ==============================================
+	// MARK: Resolution helpers
+	// ==============================================
 
 	/**
 	 * Resolves the active variant for a dimension (used for actual field resolution).
@@ -315,62 +316,45 @@ class KonfigPlugin : Plugin<Project> {
 		return "SKIP\t\t${hints.joinToString(", ")}"
 	}
 
-	private fun <T : Any> resolveGlobalFields(
+	private fun resolveFields(
 		buildType: Provider<BuildType>,
-		extension: KonfigExtension,
-		type: Class<T>
-	): Provider<Map<String, T>> = buildType.map { bt ->
-		@Suppress("UNCHECKED_CAST")
-		extension.globalFields
-			.filter { it.type == type }
-			.mapNotNull { field ->
-				val f = field as FieldConfig<T>
-				f.resolve(bt)?.orNull?.let { f.fieldName to it }
-			}
-			.toMap()
+		fields: List<FieldConfig<*>>,
+	): Provider<Map<String, String>> = buildType.map { bt ->
+		fields.mapNotNull { field -> encodeField(field, bt) }.toMap()
 	}
 
-	/**
-	 * Single-pass resolution of all dimension fields across all types.
-	 * Iterates each dimension's active variant once and partitions fields by type,
-	 * rather than running 6 separate passes (one per type).
-	 */
-	@Suppress("UNCHECKED_CAST")
 	private fun resolveDimensionFields(
 		buildType: Provider<BuildType>,
 		combined: Provider<DimensionContext>,
 		extension: KonfigExtension,
-	): Provider<DimensionFieldMaps> =
+	): Provider<Map<String, String>> =
 		buildType.zip(combined) { bt, ctx ->
-			val strings  = mutableMapOf<String, String>()
-			val booleans = mutableMapOf<String, Boolean>()
-			val ints     = mutableMapOf<String, Int>()
-			val longs    = mutableMapOf<String, Long>()
-			val floats   = mutableMapOf<String, Float>()
-			val doubles  = mutableMapOf<String, Double>()
-
-			for (dim in extension.dimensions) {
-				val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames) ?: continue
-				val vc = dim.variants[sv] ?: continue
-				val prefix = "${dim.dimensionName}|"
-
-				// Merge common fields first (lower priority), then variant fields override
-				val mergedFields = mergeVariantFields(dim.commonConfig.fields, vc.fields)
-
-				for (field in mergedFields) {
-					val key = "$prefix${field.fieldName}"
-					when (field.type) {
-						String::class.javaObjectType  -> (field as FieldConfig<String>).resolve(bt)?.orNull?.let  { strings[key]  = it }
-						Boolean::class.javaObjectType -> (field as FieldConfig<Boolean>).resolve(bt)?.orNull?.let { booleans[key] = it }
-						Int::class.javaObjectType     -> (field as FieldConfig<Int>).resolve(bt)?.orNull?.let     { ints[key]     = it }
-						Long::class.javaObjectType    -> (field as FieldConfig<Long>).resolve(bt)?.orNull?.let    { longs[key]    = it }
-						Float::class.javaObjectType   -> (field as FieldConfig<Float>).resolve(bt)?.orNull?.let   { floats[key]   = it }
-						Double::class.javaObjectType  -> (field as FieldConfig<Double>).resolve(bt)?.orNull?.let  { doubles[key]  = it }
+			buildMap {
+				for (dim in extension.dimensions) {
+					val sv = resolveActiveVariant(dim, ctx.gradleProps, ctx.fileProps, ctx.flavorDetect, ctx.taskNames) ?: continue
+					val vc = dim.variants[sv] ?: continue
+					val prefix = "${dim.dimensionName}|"
+					for (field in mergeVariantFields(dim.commonConfig.fields, vc.fields)) {
+						encodeField(field, bt)?.let { (name, value) -> put("$prefix$name", value) }
 					}
 				}
 			}
-			DimensionFieldMaps(strings, booleans, ints, longs, floats, doubles)
 		}
+
+	/** Encodes a [FieldConfig] value for [buildType] as `"TYPE:rawValue"`, or `null` if absent. */
+	private fun encodeField(field: FieldConfig<*>, buildType: BuildType): Pair<String, String>? {
+		val value = field.resolve(buildType)?.orNull ?: return null
+		val encoded = when (value) {
+			is String  -> "String:$value"
+			is Boolean -> "Boolean:$value"
+			is Int     -> "Int:$value"
+			is Long    -> "Long:$value"
+			is Float   -> "Float:$value"
+			is Double  -> "Double:$value"
+			else       -> return null
+		}
+		return field.fieldName to encoded
+	}
 
 	// ── Merge helpers ─────────────────────────────────────────────────────────
 

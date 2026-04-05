@@ -14,152 +14,131 @@ import org.gradle.api.tasks.TaskAction
 /**
  * Generates the `BuildKonfig` (or custom named) Kotlin object.
  *
- * Dimension data is encoded into flat maps keyed by "<dimensionName>|<fieldName>" so that
- * all inputs are plain Gradle property types — no managed-type nesting required.
+ * Fields are stored in flat [MapProperty]<String, String> maps where each value is
+ * type-encoded as `"<TYPE>:<literal>"` (e.g. `"String:hello"`, `"Int:42"`).
+ * Dimension fields use keys of the form `"<dimName>|<fieldName>"`.
+ * This collapses 6 separate per-type maps down to one per scope.
  */
 @CacheableTask
 abstract class GenerateKonfigTask : DefaultTask() {
 
-	@get:Input abstract val packageName: Property<String>
-	@get:Input abstract val moduleName: Property<String>
-	@get:Input abstract val objectName: Property<String>
-	@get:Input abstract val objectVisibility: Property<Visibility>
-	@get:Input abstract val buildType: Property<BuildType>
+	// ==========================================================
+	// MARK: General Settings
+	// ==========================================================
 
-	// ── Detection sources (for logging) ──────────────────────────────────────
+	@get:Input abstract val moduleName:       Property<String>
+	@get:Input abstract val buildType:        Property<BuildType>
+
+	// ==========================================================
+	// MARK: Object Settings
+	// ==========================================================
+
+	@get:Input abstract val objectPackage:      Property<String>
+	@get:Input abstract val objectName:       Property<String>
+	@get:Input abstract val objectVisibility: Property<Visibility>
+
 	/** Human-readable explanation of why the current build type was chosen. */
 	@get:Input abstract val buildTypeSource: Property<String>
 
 	/**
 	 * Resolution log for every declared dimension, keyed by dimension name.
 	 * Each value is tab-separated: `"<TAG>\t<variant>\t<reason>"`.
-	 * TAG values: OK | WARN_UNKNOWN | WARN_AMBIGUOUS | SKIP | ERROR
 	 */
 	@get:Input abstract val dimensionResolutionLog: MapProperty<String, String>
 
-	// ── Global (top-level) fields ─────────────────────────────────────────────
-	@get:Input abstract val globalStringFields: MapProperty<String, String>
-	@get:Input abstract val globalBooleanFields: MapProperty<String, Boolean>
-	@get:Input abstract val globalIntFields: MapProperty<String, Int>
-	@get:Input abstract val globalLongFields: MapProperty<String, Long>
-	@get:Input abstract val globalFloatFields: MapProperty<String, Float>
-	@get:Input abstract val globalDoubleFields: MapProperty<String, Double>
+	// ==========================================================
+	// MARK: Fields
+	// ==========================================================
 
-	// ── Dimension metadata ────────────────────────────────────────────────────
-	/** Ordered list of active dimension names, e.g. ["env", "region"]. */
+	/** Global (top-level) fields: `fieldName -> "TYPE:value"`. */
+	@get:Input abstract val globalFields: MapProperty<String, String>
+
+	// ==========================================================
+	// MARK: Dimensions
+	// ==========================================================
+
+	/** Ordered list of active dimension names. */
 	@get:Input abstract val activeDimensionNames: ListProperty<String>
-	/** dimName -> Kotlin object name, e.g. "env" -> "Environment". */
+	/** `dimName -> Kotlin object name`. */
 	@get:Input abstract val dimensionObjectNames: MapProperty<String, String>
-	/** dimName -> selected variant, e.g. "env" -> "dev". */
+	/** `dimName -> selected variant`. */
 	@get:Input abstract val dimensionActiveVariants: MapProperty<String, String>
 
-	// ── Dimension fields (key = "<dimName>|<fieldName>") ─────────────────────
-	@get:Input abstract val dimensionStringFields: MapProperty<String, String>
-	@get:Input abstract val dimensionBooleanFields: MapProperty<String, Boolean>
-	@get:Input abstract val dimensionIntFields: MapProperty<String, Int>
-	@get:Input abstract val dimensionLongFields: MapProperty<String, Long>
-	@get:Input abstract val dimensionFloatFields: MapProperty<String, Float>
-	@get:Input abstract val dimensionDoubleFields: MapProperty<String, Double>
+	/** Dimension fields: `"<dimName>|<fieldName>" -> "TYPE:value"`. */
+	@get:Input abstract val dimensionFields: MapProperty<String, String>
 
 	@get:OutputDirectory abstract val outputDirectory: DirectoryProperty
 
 	@TaskAction
 	fun generate() {
-		val pkg      = packageName.get()
-		val objName  = objectName.get()
-		val btVal    = buildType.get()
-		val mod      = moduleName.get()
-		val vis      = objectVisibility.get()
+		val pkg       = objectPackage.get()
+		val objName   = objectName.get()
+		val btVal     = buildType.get()
+		val mod       = moduleName.get()
+		val vis       = objectVisibility.get()
 		val visPrefix = when (vis) {
-			Visibility.INTERNAL -> "internal "
-			Visibility.PUBLIC   -> "public "
-		}
-		val isDebug = btVal == BuildType.DEBUG
+            Visibility.INTERNAL -> "internal "
+            Visibility.PUBLIC -> "public "
+        }
 
-		// ── Step 1: validate ─────────────────────────────────────────────────
+		val isDebug   = btVal == BuildType.DEBUG
+
 		validate(mod, objName, pkg)
-
-		// ── Step 2: log detection results ────────────────────────────────────
 		logResolution(mod, btVal, objName, pkg)
 
-		// ── Step 3: generate ─────────────────────────────────────────────────
 		val outDir = outputDirectory.get().asFile
 		if (outDir.exists()) outDir.deleteRecursively()
 		val pkgDir = outDir.resolve(pkg.replace('.', '/'))
 		pkgDir.mkdirs()
 
-		val gStr  = globalStringFields.get()
-		val gBool = globalBooleanFields.get()
-		val gInt  = globalIntFields.get()
-		val gLong = globalLongFields.get()
-		val gFlt  = globalFloatFields.get()
-		val gDbl  = globalDoubleFields.get()
-
-		val dStr  = dimensionStringFields.get()
-		val dBool = dimensionBooleanFields.get()
-		val dInt  = dimensionIntFields.get()
-		val dLong = dimensionLongFields.get()
-		val dFlt  = dimensionFloatFields.get()
-		val dDbl  = dimensionDoubleFields.get()
-
-		val dimNames    = activeDimensionNames.get()
-		val dimObjNames = dimensionObjectNames.get()
-		val dimVariants = dimensionActiveVariants.get()
-
-		val globalFieldCount = gStr.size + gBool.size + gInt.size + gLong.size + gFlt.size + gDbl.size
+		val gFields   = globalFields.get()
+		val dFields   = dimensionFields.get()
+		val dimNames  = activeDimensionNames.get()
+		val dimObjN   = dimensionObjectNames.get()
+		val dimVars   = dimensionActiveVariants.get()
 
 		val content = buildString {
-			appendLine("@file:Suppress(\"RedundantVisibilityModifier\")")
+			appendLine("""@file:Suppress("RedundantVisibilityModifier")""")
 			appendLine()
 			appendLine("package $pkg")
 			appendLine()
-			appendLine("// Generated by buildkonfig-gradle-plugin -- do not edit")
+			appendLine("// ============= DO NOT EDIT =============")
+			appendLine("// Generated by buildkonfig-gradle-plugin ")
+			appendLine("// =======================================")
 			appendLine()
 			appendLine("${visPrefix}object $objName {")
 			appendLine()
-			appendLine("    const val BUILD_TYPE: String = \"${btVal.name.lowercase()}\"")
-			appendLine("    const val MODULE_NAME: String = \"$mod\"")
+			appendLine("""    const val BUILD_TYPE: String = "${btVal.name.lowercase()}"""")
+			appendLine("""    const val MODULE_NAME: String = "$mod"""")
 			if (isDebug)
 				appendLine("    inline val IS_DEBUG: Boolean get() = true")
 			else
 				appendLine("    const val IS_DEBUG: Boolean = false")
 
-			// Global fields
-			if (gStr.isNotEmpty() || gBool.isNotEmpty() || gInt.isNotEmpty() ||
-				gLong.isNotEmpty() || gFlt.isNotEmpty() || gDbl.isNotEmpty()
-			) {
+			if (gFields.isNotEmpty()) {
 				appendLine()
-				appendFields("    ", gStr, gBool, gInt, gLong, gFlt, gDbl)
+				appendEncodedFields("    ", gFields, btVal)
 			}
 
-			// Dimension nested objects
 			for (dimName in dimNames) {
-				val dimObjName    = dimObjNames[dimName] ?: continue
-				val activeVariant = dimVariants[dimName] ?: continue
+				val dimObjName    = dimObjN[dimName] ?: continue
+				val activeVariant = dimVars[dimName] ?: continue
 				val prefix        = "$dimName|"
-
-				val sF = dStr.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
-				val bF = dBool.filterKeys { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
-				val iF = dInt.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
-				val lF = dLong.filterKeys { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
-				val fF = dFlt.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
-				val dF = dDbl.filterKeys  { it.startsWith(prefix) }.mapKeys { (k, _) -> k.removePrefix(prefix) }
+				val fields        = dFields
+					.filterKeys { it.startsWith(prefix) }
+					.mapKeys    { (k, _) -> k.removePrefix(prefix) }
 
 				appendLine()
 				appendLine("    ${visPrefix}object $dimObjName /*$dimName*/ {")
 				appendLine()
-				appendLine("        ${visPrefix}const val VARIANT: String = \"$activeVariant\"")
-				if (sF.isNotEmpty() || bF.isNotEmpty() || iF.isNotEmpty() ||
-					lF.isNotEmpty() || fF.isNotEmpty() || dF.isNotEmpty()
-				) {
+				appendLine("        const val VARIANT: String = \"$activeVariant\"")
+				if (fields.isNotEmpty()) {
 					appendLine()
-					appendFields("        ", sF, bF, iF, lF, fF, dF)
+					appendEncodedFields("        ", fields, btVal)
 				}
 				appendLine("    }")
 
-				// Log dimension field details at --info level
-				val dimFields = sF.keys + bF.keys + iF.keys + lF.keys + fF.keys + dF.keys
-				logger.info("konfig [$mod]: dim '$dimName' fields: ${dimFields.sorted().joinToString()}")
+				logger.info("konfig [$mod]: dim '$dimName' fields: ${fields.keys.sorted().joinToString()}")
 			}
 
 			appendLine()
@@ -169,11 +148,10 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		val outFile = pkgDir.resolve("$objName.kt")
 		outFile.writeText(content)
 
-		// Generation summary (always visible)
-		val dimSummary = if (dimNames.isEmpty()) "no dimensions"
+		val dimSummary   = if (dimNames.isEmpty()) "no dimensions"
 			else "${dimNames.size} dimension(s): ${dimNames.joinToString { "'$it'" }}"
-		val fieldSummary = if (globalFieldCount == 0) "no global fields"
-			else "$globalFieldCount global field(s)"
+		val fieldSummary = if (gFields.isEmpty()) "no global fields"
+			else "${gFields.size} global field(s)"
 		logger.lifecycle("konfig [$mod]: generated $objName.kt  ($fieldSummary, $dimSummary)")
 		logger.info("konfig [$mod]: output -> ${outFile.absolutePath}")
 	}
@@ -181,121 +159,95 @@ abstract class GenerateKonfigTask : DefaultTask() {
 	// ── Validation ────────────────────────────────────────────────────────────
 
 	private fun validate(mod: String, objName: String, pkg: String) {
-		// Check for ERROR-tagged dimension resolutions (e.g. bad defaultTo)
 		val errors = mutableListOf<String>()
 
 		dimensionResolutionLog.get().forEach { (dimName, encoded) ->
-			val parts = encoded.split("\t", limit = 3)
-			if (parts[0] == "ERROR") {
-				errors += "dimension '$dimName': ${parts.getOrElse(2) { "unknown error" }}"
-			}
+			if (encoded.split("\t").first() == "ERROR")
+				errors += "dimension '$dimName': ${encoded.split("\t", limit = 3).getOrElse(2) { "unknown error" }}"
 		}
 
-		// Validate objectName is a valid Kotlin identifier
-		if (!objName.isValidKotlinIdentifier()) {
+		if (!objName.isValidKotlinIdentifier())
 			errors += "objectName '$objName' is not a valid Kotlin identifier"
-		}
 
-		// Validate all field names
-		(globalStringFields.get().keys +
-			globalBooleanFields.get().keys +
-			globalIntFields.get().keys +
-			globalLongFields.get().keys +
-			globalFloatFields.get().keys +
-			globalDoubleFields.get().keys
-		).forEach { name ->
+		globalFields.get().keys.forEach { name ->
 			if (!name.isValidKotlinIdentifier())
 				errors += "global field name '$name' is not a valid Kotlin identifier"
 		}
 
-		dimensionStringFields.get().keys.forEach { key ->
-			val fieldName = key.substringAfter("|")
-			if (!fieldName.isValidKotlinIdentifier())
-				errors += "field name '$fieldName' is not a valid Kotlin identifier"
-		}
-		(dimensionBooleanFields.get().keys +
-			dimensionIntFields.get().keys +
-			dimensionLongFields.get().keys +
-			dimensionFloatFields.get().keys +
-			dimensionDoubleFields.get().keys
-		).forEach { key ->
+		dimensionFields.get().keys.forEach { key ->
 			val fieldName = key.substringAfter("|")
 			if (!fieldName.isValidKotlinIdentifier())
 				errors += "field name '$fieldName' is not a valid Kotlin identifier"
 		}
 
-		// Validate package segments
 		pkg.split(".").forEach { segment ->
 			if (segment.isEmpty() || !segment.all { it.isLetterOrDigit() || it == '_' })
 				errors += "package segment '$segment' in '$pkg' is not valid"
 		}
 
 		if (errors.isNotEmpty()) {
-			val message = buildString {
+			throw GradleException(buildString {
 				appendLine("konfig [$mod]: configuration errors:")
 				errors.forEach { appendLine("  - $it") }
-			}
-			throw GradleException(message.trimEnd())
+			}.trimEnd())
 		}
 	}
 
 	// ── Logging ───────────────────────────────────────────────────────────────
 
 	private fun logResolution(mod: String, btVal: BuildType, objName: String, pkg: String) {
-		// Build type
 		logger.lifecycle("konfig [$mod]: BUILD_TYPE = ${btVal.name.lowercase()}  (${buildTypeSource.get()})")
 
-		// Dimensions
 		val resolutionLog = dimensionResolutionLog.get()
 		if (resolutionLog.isEmpty()) {
 			logger.info("konfig [$mod]: no dimensions declared")
 		} else {
 			val maxDimLen = resolutionLog.keys.maxOf { it.length }
-			resolutionLog.entries.sortedBy { (dimName, encoded) ->
-				// Show active dimensions before skipped ones
-				val tag = encoded.split("\t").first()
-				"${if (tag == "OK") "0" else "1"}_$dimName"
-			}.forEach { (dimName, encoded) ->
-				val parts   = encoded.split("\t", limit = 3)
-				val tag     = parts[0]
-				val variant = parts.getOrElse(1) { "" }
-				val reason  = parts.getOrElse(2) { "" }
-				val padded  = dimName.padEnd(maxDimLen)
-				when (tag) {
-					"OK" ->
-						logger.lifecycle("konfig [$mod]: dim '$padded' -> '$variant'  ($reason)")
-					"SKIP" ->
-						logger.lifecycle("konfig [$mod]: dim '$padded' -> skipped  ($reason)")
-					"WARN_UNKNOWN", "WARN_AMBIGUOUS" ->
-						logger.warn("konfig [$mod]: dim '$dimName' -- $reason")
-					"ERROR" ->
-						// Already caught in validate(), but log it anyway for clarity
-						logger.error("konfig [$mod]: dim '$dimName' -- ERROR: $reason")
+			resolutionLog.entries
+				.sortedBy { (n, enc) -> "${if (enc.startsWith("OK")) "0" else "1"}_$n" }
+				.forEach { (dimName, encoded) ->
+					val parts   = encoded.split("\t", limit = 3)
+					val tag     = parts[0]
+					val variant = parts.getOrElse(1) { "" }
+					val reason  = parts.getOrElse(2) { "" }
+					val padded  = dimName.padEnd(maxDimLen)
+					when (tag) {
+						"OK"   -> logger.lifecycle("konfig [$mod]: dim '$padded' -> '$variant'  ($reason)")
+						"SKIP" -> logger.lifecycle("konfig [$mod]: dim '$padded' -> skipped  ($reason)")
+						"WARN_UNKNOWN", "WARN_AMBIGUOUS" -> logger.warn("konfig [$mod]: dim '$dimName' -- $reason")
+						"ERROR" -> logger.error("konfig [$mod]: dim '$dimName' -- ERROR: $reason")
+					}
 				}
-			}
 		}
 
-		// Object info at --info level
 		logger.info("konfig [$mod]: object = $pkg.$objName")
 	}
 
 	// ── Code-generation helpers ───────────────────────────────────────────────
 
-	private fun StringBuilder.appendFields(
-		indent: String,
-		stringFields: Map<String, String>,
-		booleanFields: Map<String, Boolean>,
-		intFields: Map<String, Int>,
-		longFields: Map<String, Long>,
-		floatFields: Map<String, Float>,
-		doubleFields: Map<String, Double>
-	) {
-		stringFields.forEach  { (k, v) -> appendLine("${indent}const val $k: String = ${v.toKotlinStringLiteral()}") }
-		booleanFields.forEach { (k, v) -> appendLine("${indent}const val $k: Boolean = $v") }
-		intFields.forEach     { (k, v) -> appendLine("${indent}const val $k: Int = $v") }
-		longFields.forEach    { (k, v) -> appendLine("${indent}const val $k: Long = ${v}L") }
-		floatFields.forEach   { (k, v) -> appendLine("${indent}const val $k: Float = ${v.toKotlinFloat()}") }
-		doubleFields.forEach  { (k, v) -> appendLine("${indent}const val $k: Double = ${v.toKotlinDouble()}") }
+	/**
+	 * Appends `const val` lines for each entry in [fields].
+	 * Values are type-encoded strings: `"String:..."`, `"Boolean:..."`, etc.
+	 */
+	private fun StringBuilder.appendEncodedFields(indent: String, fields: Map<String, String>, btVal: BuildType) {
+		fields.forEach { (name, encoded) ->
+			val colon = encoded.indexOf(':')
+			val type  = encoded.substring(0, colon)
+			val raw   = encoded.substring(colon + 1)
+			val line  = when (type) {
+				"String"  -> """${indent}const val $name: String = ${raw.toKotlinStringLiteral()}"""
+				"Boolean" -> when(btVal) {
+                    BuildType.DEBUG -> """${indent}inline val $name: Boolean get() = $raw"""
+                    BuildType.RELEASE -> """${indent}const val $name: Boolean = $raw"""
+                }
+				"Int"     -> """${indent}const val $name: Int = $raw"""
+				"Long"    -> """${indent}const val $name: Long = ${raw}L"""
+				"Float"   -> """${indent}const val $name: Float = ${raw.toFloat().toKotlinFloat()}"""
+				"Double"  -> """${indent}const val $name: Double = ${raw.toDouble().toKotlinDouble()}"""
+				else      -> return@forEach // unknown type — skip
+			}
+			appendLine(line)
+		}
 	}
 
 	private fun String.toKotlinStringLiteral(): String {
