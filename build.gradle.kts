@@ -69,11 +69,16 @@ fun prop(name: String): String? =
         ?: System.getenv(name.replace('.', '_').uppercase())
 
 publishing {
-    publications {
-        create<MavenPublication>("pluginMaven") {
-            groupId    = project.group.toString()
+    // The `kotlin-dsl` + `gradlePlugin {}` combo automatically creates two publications:
+    //   - "pluginMaven"                       → the real implementation jar (groupId:artifactId:version)
+    //   - "konfigPluginMarkerMaven"            → the plugin marker   (pluginId:pluginId.gradle.plugin:version)
+    //
+    // We must NOT create a third "pluginMaven" manually — that breaks the marker.
+    // Instead we configure the existing ones via withType.
+    publications.withType<MavenPublication>().configureEach {
+        // Only decorate the implementation publication, not the marker
+        if (artifactId != "com.bitsycore.konfig.gradle.plugin") {
             artifactId = providers.gradleProperty("konfig.artifactId").get()
-            version    = project.version.toString()
 
             pom {
                 name        = providers.gradleProperty("konfig.pom.name").get()
