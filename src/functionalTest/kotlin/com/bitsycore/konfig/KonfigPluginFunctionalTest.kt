@@ -5,10 +5,7 @@ import org.gradle.testkit.runner.GradleRunner
 import org.gradle.testkit.runner.TaskOutcome
 import java.io.File
 import kotlin.io.path.createTempDirectory
-import kotlin.test.Test
-import kotlin.test.assertEquals
-import kotlin.test.assertFalse
-import kotlin.test.assertTrue
+import kotlin.test.*
 
 @Suppress("FunctionName")
 class KonfigPluginFunctionalTest {
@@ -579,7 +576,7 @@ class KonfigPluginFunctionalTest {
         val second = run(args)
 
         // After changing the file, task should NOT be UP-TO-DATE
-        assertFalse(second.task(":generateKonfig")?.outcome == TaskOutcome.UP_TO_DATE)
+        assertNotEquals(second.task(":generateKonfig")?.outcome, TaskOutcome.UP_TO_DATE)
         val text = dir.generatedBuildKonfig().readText()
         assertTrue(text.contains("""const val VARIANT: String = "prod""""))
     }
@@ -618,8 +615,9 @@ class KonfigPluginFunctionalTest {
         run(args)
         val second = run(args)
 
-        assertFalse(
-            second.task(":generateKonfig")?.outcome == TaskOutcome.UP_TO_DATE,
+        assertNotEquals(
+            second.task(":generateKonfig")?.outcome,
+            TaskOutcome.UP_TO_DATE,
             "Expected generateKonfig to re-run when -Pkonfig.force is set, but it was UP_TO_DATE"
         )
     }
