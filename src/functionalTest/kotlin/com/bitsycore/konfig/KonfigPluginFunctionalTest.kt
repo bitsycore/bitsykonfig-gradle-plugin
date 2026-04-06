@@ -139,7 +139,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                objectVisibility = com.bitsycore.konfig.Visibility.INTERNAL
+                objectVisibility = com.bitsycore.konfig.types.Visibility.INTERNAL
             }
         """.trimIndent())
 
@@ -445,7 +445,7 @@ class KonfigPluginFunctionalTest {
             plugins { id("com.bitsycore.konfig") }
             group = "com.example"
             konfig {
-                objectVisibility = com.bitsycore.konfig.Visibility.INTERNAL
+                objectVisibility = com.bitsycore.konfig.types.Visibility.INTERNAL
                 dimension("env", defaultTo = "prod") {
                     variant("prod") { field("X", "y") }
                 }

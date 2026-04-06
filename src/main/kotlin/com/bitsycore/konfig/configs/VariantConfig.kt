@@ -1,8 +1,12 @@
-package com.bitsycore.konfig
+package com.bitsycore.konfig.configs
 
+import com.bitsycore.konfig.types.BuildType
+import com.bitsycore.konfig.types.KonfigDsl
 import org.gradle.api.provider.Provider
 
-// ── Fluent handle returned by top-level field() declarations ─────────────────
+// ==============================================================================
+// MARK: FieldHandle with modifier
+// ==============================================================================
 
 /**
  * Returned by `field(name, default)` when called at the top level of a [VariantConfig].
@@ -14,17 +18,18 @@ import org.gradle.api.provider.Provider
  * ```
  * Not available inside `debug {}` / `release {}` blocks — those return [Unit].
  */
-@KonfigDsl
 class FieldHandle<T : Any> @PublishedApi internal constructor(
     @PublishedApi internal val field: FieldConfig<T>
 ) {
-    fun debug(value: T):           Unit { field.debug(value) }
-    fun debug(value: Provider<T>): Unit { field.debug(value) }
-    fun release(value: T):           Unit { field.release(value) }
-    fun release(value: Provider<T>): Unit { field.release(value) }
+    fun debug(value: T): Unit = field.debug(value)
+    fun debug(value: Provider<T>): Unit = field.debug(value)
+    fun release(value: T): Unit = field.release(value)
+    fun release(value: Provider<T>): Unit = field.release(value)
 }
 
-// ── Scope for fields declared inside debug {} / release {} blocks ─────────────
+// ==============================================================================
+// MARK: BuildType Scope
+// ==============================================================================
 
 /**
  * Receiver of `debug { ... }` and `release { ... }` blocks inside [VariantConfig].
@@ -46,7 +51,9 @@ class BuildTypedFieldDeclScope @PublishedApi internal constructor(
     }
 }
 
-// ── Main variant / common scope ───────────────────────────────────────────────
+// ==============================================================================
+// MARK: Variant
+// ==============================================================================
 
 /**
  * DSL scope for a variant (or the `common {}` block inside a dimension).

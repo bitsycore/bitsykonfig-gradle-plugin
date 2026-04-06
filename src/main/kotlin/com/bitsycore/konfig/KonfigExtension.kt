@@ -1,5 +1,11 @@
 package com.bitsycore.konfig
 
+import com.bitsycore.konfig.configs.BuildTypedFieldDeclScope
+import com.bitsycore.konfig.configs.DimensionConfig
+import com.bitsycore.konfig.configs.FieldConfig
+import com.bitsycore.konfig.configs.VariantConfig
+import com.bitsycore.konfig.types.KonfigDsl
+import com.bitsycore.konfig.types.Visibility
 import org.gradle.api.file.DirectoryProperty
 import org.gradle.api.model.ObjectFactory
 import org.gradle.api.provider.Property
@@ -8,18 +14,20 @@ import javax.inject.Inject
 
 @KonfigDsl
 abstract class KonfigExtension @Inject constructor(
-    private val objects: ObjectFactory,
+    objects: ObjectFactory,
 ) {
-    // ── Backing Gradle properties (used by the plugin for lazy wiring) ────────
+
+    // ==============================================================================
+    // MARK: Settings Internal
+    // ==============================================================================
 
     internal val objectPackageProp:      Property<String>     = objects.property(String::class.java)
     internal val objectNameProp:       Property<String>     = objects.property(String::class.java)
     internal val objectVisibilityProp: Property<Visibility> = objects.property(Visibility::class.java)
 
-    /** Output directory — kept as [DirectoryProperty] for full Gradle lazy semantics. */
-    val outputDir: DirectoryProperty = objects.directoryProperty()
-
-    // ── User-facing var properties ────────────────────────────────────────────
+    // ==============================================================================
+    // MARK: User facing Settings
+    // ==============================================================================
 
     /** Package for the generated object (e.g. `"com.example.app"`). */
     var objectPackage: String
@@ -36,18 +44,25 @@ abstract class KonfigExtension @Inject constructor(
         get()      = objectVisibilityProp.get()
         set(value) = objectVisibilityProp.set(value)
 
-    // ── DSL internals ─────────────────────────────────────────────────────────
+    /** Output directory — kept as [DirectoryProperty] for full Gradle lazy semantics. */
+    val outputDir: DirectoryProperty = objects.directoryProperty()
+
+    // ==============================================================================
+    // MARK: DSL Internal
+    // ==============================================================================
 
     @PublishedApi
     internal val dimensions: MutableList<DimensionConfig> = mutableListOf()
 
-    /** Backing store for global fields — reuses [VariantConfig] for its field/debug/release logic. */
+    /** Backing store for global fields — reuses [com.bitsycore.konfig.configs.VariantConfig] for its field/debug/release logic. */
     @PublishedApi
     internal val globalScope: VariantConfig = VariantConfig("\$global")
 
     internal val globalFields: List<FieldConfig<*>> get() = globalScope.fields
 
-    // ─── Dimension DSL ────────────────────────────────────────────────────────
+    // ==============================================================================
+    // MARK: Top Level DSL
+    // ==============================================================================
 
     fun dimension(
         name: String,
@@ -62,8 +77,6 @@ abstract class KonfigExtension @Inject constructor(
         config(d)
         dimensions.add(d)
     }
-
-    // ─── Global field DSL — delegates to globalScope ──────────────────────────
 
     inline fun <reified T : Any> field(
         name: String,

@@ -1,4 +1,4 @@
-package com.bitsycore.konfig
+package com.bitsycore.konfig.types
 
 import kotlin.enums.enumEntries
 

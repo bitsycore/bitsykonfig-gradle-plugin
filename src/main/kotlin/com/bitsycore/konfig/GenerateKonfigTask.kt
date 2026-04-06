@@ -1,5 +1,7 @@
 package com.bitsycore.konfig
 
+import com.bitsycore.konfig.types.BuildType
+import com.bitsycore.konfig.types.Visibility
 import org.gradle.api.DefaultTask
 import org.gradle.api.GradleException
 import org.gradle.api.file.DirectoryProperty
@@ -156,7 +158,9 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		logger.info("konfig [$mod]: output -> ${outFile.absolutePath}")
 	}
 
-	// ── Validation ────────────────────────────────────────────────────────────
+	// ==============================================================================
+	// MARK: Validation
+	// ==============================================================================
 
 	private fun validate(mod: String, objName: String, pkg: String) {
 		val errors = mutableListOf<String>()
@@ -193,7 +197,9 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		}
 	}
 
-	// ── Logging ───────────────────────────────────────────────────────────────
+	// ==============================================================================
+	// MARK: Loggings
+	// ==============================================================================
 
 	private fun logResolution(mod: String, btVal: BuildType, objName: String, pkg: String) {
 		logger.lifecycle("konfig [$mod]: BUILD_TYPE = ${btVal.name.lowercase()}  (${buildTypeSource.get()})")
@@ -223,7 +229,9 @@ abstract class GenerateKonfigTask : DefaultTask() {
 		logger.info("konfig [$mod]: object = $pkg.$objName")
 	}
 
-	// ── Code-generation helpers ───────────────────────────────────────────────
+	// ==============================================================================
+	// MARK: Helpers
+	// ==============================================================================
 
 	/**
 	 * Appends `const val` lines for each entry in [fields].

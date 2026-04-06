@@ -1,4 +1,6 @@
-package com.bitsycore.konfig
+package com.bitsycore.konfig.configs
+
+import com.bitsycore.konfig.types.KonfigDsl
 
 /**
  * DSL scope for a dimension declaration.
@@ -35,9 +37,11 @@ class DimensionConfig @PublishedApi internal constructor(
      * Shared fields that apply to **all** variants as a fallback.
      * A variant field with the same name takes precedence over a common field.
      */
-    internal val commonConfig: VariantConfig = VariantConfig("\$common")
+    internal val commonConfig: VariantConfig = VariantConfig($$"$common")
 
-    // ── DSL ──────────────────────────────────────────────────────────────────
+    // ==============================================================================
+    // MARK: DSL
+    // ==============================================================================
 
     /**
      * Declares a named variant.  Can be called multiple times for the same name

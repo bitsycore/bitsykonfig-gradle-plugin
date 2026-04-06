@@ -3,6 +3,10 @@
 package com.bitsycore.konfig
 
 import com.android.build.api.dsl.CommonExtension
+import com.bitsycore.konfig.configs.DimensionConfig
+import com.bitsycore.konfig.configs.FieldConfig
+import com.bitsycore.konfig.types.BuildType
+import com.bitsycore.konfig.types.Visibility
 import org.gradle.api.Plugin
 import org.gradle.api.Project
 import org.gradle.api.provider.Provider
@@ -360,7 +364,9 @@ class KonfigPlugin : Plugin<Project> {
 		return field.fieldName to encoded
 	}
 
-	// ── Merge helpers ─────────────────────────────────────────────────────────
+	// ==============================================================================
+	// MARK: Fields Merge
+	// ==============================================================================
 
 	/**
 	 * Returns a merged list of fields: [commonFields] as the base, with any field in
@@ -375,7 +381,9 @@ class KonfigPlugin : Plugin<Project> {
 		return commonFields.filter { it.fieldName !in variantNames } + variantFields
 	}
 
-	// ── Package-name helpers ──────────────────────────────────────────────────
+	// ==============================================================================
+	// MARK: Package Utilities
+	// ==============================================================================
 
 	private fun defaultPackageName(projectName: String, projectGroup: String): String {
 		val group = projectGroup

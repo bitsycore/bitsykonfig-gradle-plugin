@@ -1,5 +1,6 @@
 package com.bitsycore.konfig
 
+import com.bitsycore.konfig.types.BuildType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNull

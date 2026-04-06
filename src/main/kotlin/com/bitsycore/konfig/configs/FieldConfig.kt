@@ -1,6 +1,10 @@
-package com.bitsycore.konfig
+package com.bitsycore.konfig.configs
 
+import com.bitsycore.konfig.types.BuildType
+import org.gradle.api.Transformer
 import org.gradle.api.provider.Provider
+import org.gradle.api.specs.Spec
+import java.util.function.BiFunction
 
 /**
  * Holds the resolved configuration for a single generated field.
@@ -53,14 +57,14 @@ private class ConstantProvider<T : Any>(private val value: T) : Provider<T> {
     override fun getOrElse(defaultValue: T): T = value
     override fun isPresent(): Boolean = true
 
-    override fun <S : Any> map(transformer: org.gradle.api.Transformer<out S?, in T>): Provider<S> =
+    override fun <S : Any> map(transformer: Transformer<out S?, in T>): Provider<S> =
         ConstantProvider(transformer.transform(value)!!)
 
-    override fun <S : Any> flatMap(transformer: org.gradle.api.Transformer<out Provider<out S>?, in T>): Provider<S> =
+    override fun <S : Any> flatMap(transformer: Transformer<out Provider<out S>?, in T>): Provider<S> =
         @Suppress("UNCHECKED_CAST")
         (transformer.transform(value) as Provider<S>)
 
-    override fun filter(spec: org.gradle.api.specs.Spec<in T>): Provider<T> =
+    override fun filter(spec: Spec<in T>): Provider<T> =
         if (spec.isSatisfiedBy(value)) this else throw NoSuchElementException("Provider has no value")
 
     override fun orElse(value: T): Provider<T> = this
@@ -71,6 +75,6 @@ private class ConstantProvider<T : Any>(private val value: T) : Provider<T> {
 
     override fun <B : Any, R : Any> zip(
         right: Provider<B>,
-        combiner: java.util.function.BiFunction<in T, in B, out R?>
+        combiner: BiFunction<in T, in B, out R?>
     ): Provider<R> = ConstantProvider(combiner.apply(value, right.get())!!)
 }
