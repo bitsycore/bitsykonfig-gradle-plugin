@@ -48,7 +48,7 @@ dependencies {
 	compileOnly("org.jetbrains.kotlin:kotlin-gradle-plugin:$embeddedKotlinVersion")
 	compileOnly("com.android.tools.build:gradle:8.0.0")
 	testImplementation(kotlin("test"))
-	"functionalTestImplementation"(gradleTestKit())
+    add("functionalTestImplementation", gradleTestKit())
 }
 
 val functionalTestTask = tasks.register<Test>("functionalTest") {
@@ -60,8 +60,60 @@ val functionalTestTask = tasks.register<Test>("functionalTest") {
 
 tasks.check { dependsOn(functionalTestTask) }
 
+// ========================================================
+// MARK: Publishing
+// ========================================================
+
+fun prop(name: String): String? =
+    providers.gradleProperty(name).orNull
+        ?: System.getenv(name.replace('.', '_').uppercase())
+
 publishing {
-	repositories {
-		mavenLocal()
-	}
+    publications {
+        create<MavenPublication>("pluginMaven") {
+            groupId    = project.group.toString()
+            artifactId = providers.gradleProperty("konfig.artifactId").get()
+            version    = project.version.toString()
+
+            pom {
+                name        = providers.gradleProperty("konfig.pom.name").get()
+                description = providers.gradleProperty("konfig.pom.description").get()
+                url         = providers.gradleProperty("konfig.pom.url").get()
+
+                licenses {
+                    license {
+                        name = "MIT License"
+                        url  = "https://opensource.org/licenses/MIT"
+                    }
+                }
+
+                developers {
+                    developer {
+                        id   = providers.gradleProperty("konfig.pom.developer.id").get()
+                        name = providers.gradleProperty("konfig.pom.developer.name").get()
+                        url  = providers.gradleProperty("konfig.pom.developer.url").get()
+                    }
+                }
+
+                scm {
+                    connection          = providers.gradleProperty("konfig.pom.scm.connection").get()
+                    developerConnection = providers.gradleProperty("konfig.pom.scm.developerConnection").get()
+                    url                 = providers.gradleProperty("konfig.pom.scm.url").get()
+                }
+            }
+        }
+    }
+
+    repositories {
+        mavenLocal()
+
+        maven {
+            name = "GitHubPackages"
+            url  = uri(providers.gradleProperty("konfig.publish.url").get())
+            credentials {
+                username = prop("gpr.user")
+                password = prop("gpr.key")
+            }
+        }
+    }
 }
