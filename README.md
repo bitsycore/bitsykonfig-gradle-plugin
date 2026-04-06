@@ -5,35 +5,73 @@ A Gradle plugin that generates a `BuildKonfig` Kotlin object at build time — l
 Fields can be constant, overridden per build type (debug/release), or scoped to named **dimensions** (e.g. environment, region) with their own variants.
 
 **Plugin ID:** `com.bitsycore.konfig`  
-**Version:** `0.2.0`  
+**Group:** `com.bitsycore`  
+**Artifact:** `konfig-gradle-plugin`  
+**Version:** `0.5.0`  
 **JVM target:** 17
 
 ---
 
 ## Setup
 
-### 1. Publish to local Maven (until published to a registry)
+### 1. Add the GitHub Packages repository
 
-```bash
-./gradlew publishToMavenLocal
+The plugin is published to GitHub Packages. Both a `gpr.user` (GitHub username) and `gpr.key` (Personal Access Token with `read:packages` scope) are required.
+
+Store credentials in `~/.gradle/gradle.properties` — never commit them:
+
+```properties
+gpr.user=YOUR_GITHUB_USERNAME
+gpr.key=YOUR_GITHUB_PERSONAL_ACCESS_TOKEN
 ```
 
-### 2. Add to your project
+Alternatively export environment variables `GPR_USER` / `GPR_KEY` and the build script will pick them up automatically.
+
+### 2. Configure plugin resolution
 
 `settings.gradle.kts`:
+
 ```kotlin
 pluginManagement {
     repositories {
-        mavenLocal()
+        maven {
+            name = "GitHubPackages"
+            url  = uri("https://maven.pkg.github.com/bitsycore/bitsykonfig-gradle-plugin")
+            credentials {
+                username = providers.gradleProperty("gpr.user").orNull ?: System.getenv("GPR_USER")
+                password = providers.gradleProperty("gpr.key").orNull  ?: System.getenv("GPR_KEY")
+            }
+        }
         gradlePluginPortal()
     }
 }
 ```
 
+### 3. Declare the plugin
+
+Using a version catalog (`libs.versions.toml`):
+
+```toml
+[versions]
+konfig = "0.5.0"
+
+[plugins]
+konfig = { id = "com.bitsycore.konfig", version.ref = "konfig" }
+```
+
 `build.gradle.kts`:
+
 ```kotlin
 plugins {
-    id("com.bitsycore.konfig") version "0.2.0"
+    alias(libs.plugins.konfig)
+}
+```
+
+Or inline:
+
+```kotlin
+plugins {
+    id("com.bitsycore.konfig") version "0.5.0"
 }
 ```
 
@@ -75,9 +113,9 @@ In debug builds (`-Pkonfig.buildtype=DEBUG`), `ENABLE_LOGGING` becomes `inline v
 
 ```kotlin
 konfig {
-    objectPackage    = "com.example.app"        // default: derived from group + name or projectName + moduleName
-    objectName       = "BuildKonfig"             // default: "BuildKonfig"
-    objectVisibility = Visibility.INTERNAL       // default: Visibility.PUBLIC
+    objectPackage    = "com.example.app"   // default: derived from group + project name
+    objectName       = "BuildKonfig"        // default: "BuildKonfig"
+    objectVisibility = Visibility.INTERNAL  // default: Visibility.PUBLIC
 }
 ```
 
@@ -94,14 +132,14 @@ konfig {
 
 ### Build-type overrides
 
-Three equivalent forms for overriding per build type:
+Three equivalent forms:
 
 ```kotlin
 konfig {
-    // Fluent handle (default + one or both overrides)
+    // Fluent handle — default + one or both overrides
     field("BASE_URL", "https://prod.example.com").debug("https://dev.example.com")
 
-    // Scope blocks (build type is fixed — field() returns Unit, no chaining)
+    // Scope blocks — build type is fixed, field() returns Unit, no chaining
     debug   { field("MOCK_API", true) }
     release { field("MOCK_API", false) }
 }
@@ -113,8 +151,7 @@ konfig {
 
 ## Dimensions
 
-Dimensions let you select a named variant at build time (e.g. `env=prod`, `env=dev`).  
-Each active dimension generates a nested object inside `BuildKonfig`.
+Dimensions let you select a named variant at build time (e.g. `env=prod`, `env=dev`). Each active dimension generates a nested object inside `BuildKonfig`.
 
 ```kotlin
 konfig {
@@ -144,7 +181,7 @@ public object BuildKonfig {
 
     public object Env /*env*/ {
         const val VARIANT: String = "dev"
-        inline val TIMEOUT: Boolean get() = 5   // from common {}, debug override
+        inline val TIMEOUT: Int get() = 5     // common {}, debug override
         const val BASE_URL: String = "https://dev.example.com"
         const val ANALYTICS: Boolean = false
     }
@@ -159,7 +196,7 @@ Fields declared in `common {}` act as fallbacks for all variants. A variant fiel
 
 ```kotlin
 dimension("env", objectNameOverride = "Environment", defaultTo = "prod") { ... }
-// generates: object Environment { ... }
+// generates: object Environment /*env*/ { ... }
 ```
 
 If no override is given, the object name is derived from the dimension name via CamelCase conversion (`my-env` → `MyEnv`).
@@ -214,7 +251,7 @@ Build type is resolved in priority order:
 
 ### `konfig.force`
 
-Forces the `generateKonfig` task to re-run on every build, bypassing Gradle's UP-TO-DATE and build-cache checks. Useful when generating a release build for a client or diagnosing cache issues.
+Forces `generateKonfig` to re-run on every build, bypassing Gradle's UP-TO-DATE and build-cache checks.
 
 ```bash
 ./gradlew generateKonfig -Pkonfig.force
@@ -230,10 +267,10 @@ The flag is presence-based — any value (or no value) enables it.
 ```kotlin
 import com.example.app.BuildKonfig
 
-println(BuildKonfig.BUILD_TYPE)       // "debug" or "release"
-println(BuildKonfig.IS_DEBUG)         // true (debug) or false (release)
-println(BuildKonfig.Env.BASE_URL)     // dimension field
-println(BuildKonfig.Env.VARIANT)      // "dev" or "prod"
+println(BuildKonfig.BUILD_TYPE)    // "debug" or "release"
+println(BuildKonfig.IS_DEBUG)      // true (debug) or false (release)
+println(BuildKonfig.Env.BASE_URL)  // dimension field
+println(BuildKonfig.Env.VARIANT)   // "dev" or "prod"
 ```
 
 ---
@@ -266,18 +303,39 @@ The `generateKonfig` task is automatically wired as a dependency of all `compile
 
 ---
 
-## Build
+## Publishing (plugin development)
 
 ```bash
-# Build and publish to local Maven
+# Publish to GitHub Packages (requires gpr.user + gpr.key)
+./gradlew publish
+
+# Publish only the plugin marker (fixes resolution without re-uploading the jar)
+./gradlew publishKonfigPluginMarkerMavenPublicationToGitHubPackagesRepository
+
+# Publish to local Maven for local testing
+./gradlew publishToMavenLocal
+```
+
+---
+
+## Development
+
+```bash
+# Build and publish to local Maven (primary development loop)
 ./gradlew publishToMavenLocal
 
-# Run all tests
-./gradlew check
+# Run unit tests only
+./gradlew test
 
-# Run only functional tests
+# Run functional tests (Gradle TestKit — starts real Gradle builds)
 ./gradlew functionalTest
 
 # Run a specific functional test
 ./gradlew functionalTest --tests "*dimension with defaultTo*"
+
+# Run all checks (test + functionalTest)
+./gradlew check
+
+# Force re-run (skip UP-TO-DATE / cache)
+./gradlew functionalTest --rerun-tasks
 ```
